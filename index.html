@@ -186,8 +186,17 @@
     gap:12px;
     padding:12px 4px;
     border-bottom:1px solid var(--border);
+    cursor:pointer;
+    border-radius:10px;
   }
   .txn-row:last-child{border-bottom:none;}
+  .txn-row:active{background:rgba(242,237,225,0.05);}
+
+  .search-input{
+    width:100%; background:var(--surface); border:1px solid var(--border-strong); border-radius:12px;
+    padding:12px 14px; font-size:14px; margin-bottom:14px; color:var(--ink);
+  }
+  .search-input::placeholder{color:var(--ink-faint);}
   .txn-dot{width:34px; height:34px; border-radius:11px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:600;}
   .txn-info{flex:1; min-width:0;}
   .txn-info .cat{font-size:14px; font-weight:500;}
@@ -202,6 +211,14 @@
 
   /* ---------- Insights ---------- */
   .period-row{display:flex; gap:8px; margin-bottom:16px;}
+  .compare-line{
+    font-size:13px; color:var(--ink-muted); line-height:1.5;
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:11px 14px; margin-bottom:18px;
+  }
+  .compare-line strong{font-weight:700;}
+  .compare-line.up strong{color:var(--rust);}
+  .compare-line.down strong{color:var(--gold);}
   .bar-list{margin-top:14px;}
   .bar-item{margin-bottom:14px;}
   .bar-item .top{display:flex; justify-content:space-between; font-size:13px; margin-bottom:5px;}
@@ -319,6 +336,7 @@
     padding:9px 15px; font-size:13px; color:var(--ink-muted);
   }
   .cat-pill.active{background:var(--gold); border-color:var(--gold); color:#16281F; font-weight:600;}
+  .sheet .btn-danger{margin-top:10px;}
 
   /* ---------- Toast ---------- */
   .toast{
@@ -370,6 +388,7 @@
 
     <!-- HISTORY -->
     <section class="tab-panel" id="tab-history">
+      <input type="text" id="historySearch" class="search-input" placeholder="Search by category or note">
       <div class="filter-row">
         <button class="filter-btn active" data-filter="all">All</button>
         <button class="filter-btn" data-filter="income">Income</button>
@@ -385,6 +404,7 @@
         <button class="filter-btn" data-period="last">Last month</button>
         <button class="filter-btn" data-period="all">All time</button>
       </div>
+      <div class="compare-line" id="compareLine" style="display:none;"></div>
       <div class="section-head"><h2>Where it goes</h2></div>
       <div class="card">
         <div class="chart-wrap" style="height:220px;"><canvas id="barChart"></canvas></div>
@@ -450,7 +470,7 @@
 <div class="sheet-backdrop" id="sheetBackdrop"></div>
 <div class="sheet" id="addSheet">
   <div class="sheet-handle"></div>
-  <h2>Add transaction</h2>
+  <h2 id="sheetTitle">Add transaction</h2>
   <div class="type-toggle">
     <button type="button" class="active" data-type="expense">Expense</button>
     <button type="button" data-type="income">Income</button>
@@ -466,6 +486,7 @@
   <p class="field-label">Note (optional)</p>
   <input type="text" id="noteInput" placeholder="What was it for?">
   <button class="btn btn-gold btn-block" id="saveTxnBtn">Save transaction</button>
+  <button class="btn btn-danger btn-block" id="deleteTxnBtn" style="display:none;">Delete transaction</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -490,6 +511,8 @@
   var currentType = "expense";
   var currentFilter = "all";
   var currentPeriod = "month";
+  var currentSearch = "";
+  var editingId = null;
   var donutChart = null;
   var barChart = null;
 
@@ -586,6 +609,12 @@
     var d = new Date(); d.setMonth(d.getMonth() - 1);
     return d.toISOString().slice(0,7);
   }
+  function txnsInMonthUpToDay(key, day){
+    return state.transactions.filter(function(t){
+      if (monthKey(t.date) !== key) return false;
+      return parseInt(t.date.slice(8,10), 10) <= day;
+    });
+  }
 
   function categoryTotals(txns, type){
     var totals = {};
@@ -662,13 +691,26 @@
     });
   });
 
+  document.getElementById("historySearch").addEventListener("input", function(e){
+    currentSearch = e.target.value.trim().toLowerCase();
+    renderHistory();
+  });
+
   function renderHistory(){
     var list = document.getElementById("historyList");
     var txns = state.transactions.slice().sort(function(a,b){ return b.date.localeCompare(a.date) || b.createdAt - a.createdAt; });
     if (currentFilter !== "all") txns = txns.filter(function(t){ return t.type === currentFilter; });
+    if (currentSearch){
+      txns = txns.filter(function(t){
+        return t.category.toLowerCase().indexOf(currentSearch) !== -1 ||
+          (t.note || "").toLowerCase().indexOf(currentSearch) !== -1;
+      });
+    }
 
     if (txns.length === 0){
-      list.innerHTML = '<div class="empty"><strong>No transactions</strong>Tap the + button to log the first one.</div>';
+      list.innerHTML = (currentSearch || currentFilter !== "all")
+        ? '<div class="empty"><strong>No matches</strong>Try a different search or filter.</div>'
+        : '<div class="empty"><strong>No transactions</strong>Tap the + button to log the first one.</div>';
       return;
     }
 
@@ -683,7 +725,7 @@
     list.innerHTML = order.map(function(k){
       var rows = groups[k].map(function(t){
         var initial = t.category.charAt(0).toUpperCase();
-        return '<div class="txn-row">' +
+        return '<div class="txn-row" data-id="'+t.id+'" role="button" tabindex="0">' +
           '<div class="txn-dot" style="background:'+colorForCategory(t.category)+'22; color:'+colorForCategory(t.category)+'">'+initial+'</div>' +
           '<div class="txn-info"><div class="cat">'+escapeHtml(t.category)+'</div>' +
           (t.note ? '<div class="note">'+escapeHtml(t.note)+'</div>' : '<div class="note">'+t.date+'</div>') + '</div>' +
@@ -694,12 +736,22 @@
       return '<div class="month-group"><div class="month-title">'+monthLabel(k)+'</div>'+rows+'</div>';
     }).join("");
 
+    function openRowForEdit(id){
+      var t = state.transactions.find(function(x){ return x.id === id; });
+      if (t) openSheet(t);
+    }
+    list.querySelectorAll(".txn-row").forEach(function(row){
+      row.addEventListener("click", function(){ openRowForEdit(row.dataset.id); });
+      row.addEventListener("keydown", function(e){
+        if (e.key === "Enter" || e.key === " "){ e.preventDefault(); openRowForEdit(row.dataset.id); }
+      });
+    });
     list.querySelectorAll(".del-btn").forEach(function(btn){
-      btn.addEventListener("click", function(){
+      btn.addEventListener("click", function(e){
+        e.stopPropagation();
         state.transactions = state.transactions.filter(function(t){ return t.id !== btn.dataset.id; });
         saveData();
-        renderHistory();
-        renderOverview();
+        renderAll();
         showToast("Transaction deleted");
       });
     });
@@ -727,6 +779,33 @@
     var cats = Object.keys(totals).sort(function(a,b){ return totals[b]-totals[a]; });
     var listEl = document.getElementById("insightsList");
     var chartWrap = document.querySelector("#tab-insights .chart-wrap");
+    var compareEl = document.getElementById("compareLine");
+
+    if (currentPeriod === "month"){
+      var dayOfMonth = new Date().getDate();
+      var thisTotal = cats.reduce(function(s,c){ return s+totals[c]; }, 0);
+      var lastTotals = categoryTotals(txnsInMonthUpToDay(lastMonthKey(), dayOfMonth), "expense");
+      var lastTotal = Object.keys(lastTotals).reduce(function(s,c){ return s+lastTotals[c]; }, 0);
+      if (lastTotal > 0){
+        var diff = thisTotal - lastTotal;
+        var pct = Math.round(Math.abs(diff) / lastTotal * 100);
+        compareEl.style.display = "";
+        if (pct < 1){
+          compareEl.className = "compare-line";
+          compareEl.innerHTML = "About even with last month, by this point.";
+        } else if (diff > 0){
+          compareEl.className = "compare-line up";
+          compareEl.innerHTML = "<strong>" + pct + "% more</strong> spent than by this point last month.";
+        } else {
+          compareEl.className = "compare-line down";
+          compareEl.innerHTML = "<strong>" + pct + "% less</strong> spent than by this point last month.";
+        }
+      } else {
+        compareEl.style.display = "none";
+      }
+    } else {
+      compareEl.style.display = "none";
+    }
 
     if (cats.length === 0){
       listEl.innerHTML = '<div class="empty"><strong>Nothing to show</strong>No expenses logged for this period yet.</div>';
@@ -852,10 +931,16 @@
   var sheet = document.getElementById("addSheet");
   var backdrop = document.getElementById("sheetBackdrop");
 
-  function openSheet(){
-    document.getElementById("dateInput").value = todayStr();
+  function openSheet(txn){
+    editingId = txn ? txn.id : null;
+    document.getElementById("sheetTitle").textContent = txn ? "Edit transaction" : "Add transaction";
+    document.getElementById("saveTxnBtn").textContent = txn ? "Save changes" : "Save transaction";
+    document.getElementById("deleteTxnBtn").style.display = txn ? "" : "none";
+    document.getElementById("dateInput").value = txn ? txn.date : todayStr();
     document.getElementById("sheetCurrencySign").textContent = state.currency;
-    setType("expense");
+    document.getElementById("amountInput").value = txn ? txn.amount : "";
+    document.getElementById("noteInput").value = txn ? (txn.note || "") : "";
+    setType(txn ? txn.type : "expense", txn ? txn.category : null);
     backdrop.classList.add("show");
     sheet.classList.add("show");
     document.body.style.overflow = "hidden";
@@ -866,26 +951,27 @@
     document.body.style.overflow = "";
     document.getElementById("amountInput").value = "";
     document.getElementById("noteInput").value = "";
+    editingId = null;
   }
-  document.getElementById("fabAdd").addEventListener("click", openSheet);
+  document.getElementById("fabAdd").addEventListener("click", function(){ openSheet(); });
   backdrop.addEventListener("click", closeSheet);
 
-  function setType(type){
+  function setType(type, preselectCategory){
     currentType = type;
     document.querySelectorAll(".type-toggle button").forEach(function(b){ b.classList.toggle("active", b.dataset.type === type); });
-    renderCatPicker();
+    renderCatPicker(preselectCategory);
   }
   document.querySelectorAll(".type-toggle button").forEach(function(b){
     b.addEventListener("click", function(){ setType(b.dataset.type); });
   });
 
   var selectedCategory = null;
-  function renderCatPicker(){
+  function renderCatPicker(preselectCategory){
     var list = state.categories[currentType];
-    selectedCategory = list[0] || null;
+    selectedCategory = (preselectCategory && list.indexOf(preselectCategory) !== -1) ? preselectCategory : (list[0] || null);
     var wrap = document.getElementById("catPicker");
-    wrap.innerHTML = list.map(function(c, i){
-      return '<button type="button" class="cat-pill'+(i===0?" active":"")+'" data-cat="'+escapeHtml(c)+'">'+escapeHtml(c)+'</button>';
+    wrap.innerHTML = list.map(function(c){
+      return '<button type="button" class="cat-pill'+(c === selectedCategory ? " active" : "")+'" data-cat="'+escapeHtml(c)+'">'+escapeHtml(c)+'</button>';
     }).join("");
     wrap.querySelectorAll(".cat-pill").forEach(function(btn){
       btn.addEventListener("click", function(){
@@ -904,19 +990,44 @@
     var date = document.getElementById("dateInput").value || todayStr();
     var note = document.getElementById("noteInput").value.trim();
 
-    state.transactions.push({
-      id: makeId(),
-      type: currentType,
-      amount: Math.round(amount * 100) / 100,
-      category: selectedCategory,
-      note: note,
-      date: date,
-      createdAt: Date.now()
-    });
+    if (editingId){
+      var existing = state.transactions.find(function(t){ return t.id === editingId; });
+      if (existing){
+        existing.type = currentType;
+        existing.amount = Math.round(amount * 100) / 100;
+        existing.category = selectedCategory;
+        existing.note = note;
+        existing.date = date;
+      }
+      saveData();
+      closeSheet();
+      renderAll();
+      showToast("Changes saved");
+    } else {
+      state.transactions.push({
+        id: makeId(),
+        type: currentType,
+        amount: Math.round(amount * 100) / 100,
+        category: selectedCategory,
+        note: note,
+        date: date,
+        createdAt: Date.now()
+      });
+      saveData();
+      closeSheet();
+      renderAll();
+      showToast("Transaction added");
+    }
+  });
+
+  document.getElementById("deleteTxnBtn").addEventListener("click", function(){
+    if (!editingId) return;
+    if (!confirm("Delete this transaction? This can't be undone.")) return;
+    state.transactions = state.transactions.filter(function(t){ return t.id !== editingId; });
     saveData();
     closeSheet();
     renderAll();
-    showToast("Transaction added");
+    showToast("Transaction deleted");
   });
 
   // ---------- Utility ----------
