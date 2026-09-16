@@ -1039,8 +1039,25 @@
 
   // ---------- Quick add via URL (for Back Tap / Shortcuts) ----------
   function handleQuickAdd(){
-    var params = new URLSearchParams(window.location.search);
-    if (params.get("quickadd") !== "1") return;
+    var search = window.location.search;
+
+    if (!search){
+      showToast("Debug build v2 loaded - opened normally");
+      return;
+    }
+
+    var params = new URLSearchParams(search);
+    var debugInfo = "Full URL:\n" + window.location.href + "\n\n" +
+      "quickadd: " + params.get("quickadd") + "\n" +
+      "type: " + params.get("type") + "\n" +
+      "amount: " + params.get("amount") + "\n" +
+      "category: " + params.get("category") + "\n" +
+      "note: " + params.get("note");
+
+    if (params.get("quickadd") !== "1"){
+      alert("DEBUG - quickadd param missing or wrong:\n\n" + debugInfo);
+      return;
+    }
 
     var type = params.get("type") === "income" ? "income" : "expense";
     var amount = parseFloat(params.get("amount"));
@@ -1048,7 +1065,7 @@
     var note = params.get("note") || "";
 
     if (!amount || amount <= 0){
-      showToast("Quick add needs a valid amount");
+      alert("DEBUG - amount is invalid, nothing was saved:\n\n" + debugInfo);
       history.replaceState({}, document.title, window.location.pathname);
       return;
     }
@@ -1067,7 +1084,7 @@
     });
     saveData();
     renderAll();
-    showToast((type === "income" ? "Income logged: " : "Expense logged: ") + formatMoney(amount));
+    alert("DEBUG - saved successfully:\n\n" + debugInfo + "\n\nCategory actually used: " + category);
 
     // Strip the query string so a refresh doesn't log it twice
     history.replaceState({}, document.title, window.location.pathname);
