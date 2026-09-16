@@ -1037,6 +1037,42 @@
     });
   }
 
+  // ---------- Quick add via URL (for Back Tap / Shortcuts) ----------
+  function handleQuickAdd(){
+    var params = new URLSearchParams(window.location.search);
+    if (params.get("quickadd") !== "1") return;
+
+    var type = params.get("type") === "income" ? "income" : "expense";
+    var amount = parseFloat(params.get("amount"));
+    var rawCategory = params.get("category") || "";
+    var note = params.get("note") || "";
+
+    if (!amount || amount <= 0){
+      showToast("Quick add needs a valid amount");
+      history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    var validCats = state.categories[type];
+    var category = validCats.indexOf(rawCategory) !== -1 ? rawCategory : (validCats[0] || "Other");
+
+    state.transactions.push({
+      id: makeId(),
+      type: type,
+      amount: Math.round(amount * 100) / 100,
+      category: category,
+      note: note,
+      date: todayStr(),
+      createdAt: Date.now()
+    });
+    saveData();
+    renderAll();
+    showToast((type === "income" ? "Income logged: " : "Expense logged: ") + formatMoney(amount));
+
+    // Strip the query string so a refresh doesn't log it twice
+    history.replaceState({}, document.title, window.location.pathname);
+  }
+
   function renderAll(){
     renderOverview();
     renderHistory();
@@ -1046,6 +1082,7 @@
 
   renderCatPicker();
   renderAll();
+  handleQuickAdd();
 })();
 </script>
 </body>
