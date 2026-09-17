@@ -726,45 +726,66 @@
     return { income: income, expense: expense, net: income - expense };
   }
 
-  function goalProgress(){
-    if (!state.goal) return 0;
-    return state.transactions.filter(function(t){ return t.date >= state.goal.startDate; })
-      .reduce(function(s,t){ return s + (t.type === "income" ? t.amount : -t.amount); }, 0);
+  function daysInMonthOf(monthKeyStr){
+    var parts = monthKeyStr.split("-");
+    return new Date(parseInt(parts[0],10), parseInt(parts[1],10), 0).getDate();
   }
-  function goalWeeksRemaining(){
+  function goalMonthlyBudget(){
     if (!state.goal) return 0;
-    var days = daysBetween(todayStr(), state.goal.targetDate);
-    if (days <= 0) return 0;
-    return Math.max(1, Math.ceil(days / 7));
+    return state.goal.monthlyIncome - state.goal.monthlySavings;
   }
-  function goalWeeklyTarget(){
+  function goalSpentInMonth(monthKeyStr){
+    return state.transactions.filter(function(t){ return t.type === "expense" && monthKey(t.date) === monthKeyStr; })
+      .reduce(function(s,t){ return s + t.amount; }, 0);
+  }
+  function goalWeeksRemainingInMonth(){
     if (!state.goal) return 0;
-    var remaining = state.goal.amount - goalProgress();
-    var weeks = goalWeeksRemaining();
-    if (weeks <= 0) return remaining > 0 ? remaining : 0;
-    return remaining / weeks;
+    var mKey = state.goal.monthKey;
+    var totalDays = daysInMonthOf(mKey);
+    var dayNum = mKey === currentMonthKey() ? parseInt(todayStr().slice(8,10),10) : totalDays;
+    var remainingDays = totalDays - dayNum + 1;
+    return Math.max(1, Math.ceil(remainingDays / 7));
   }
   function goalWeeklyAllowance(){
     if (!state.goal) return null;
-    if (goalWeeksRemaining() <= 0) return null;
-    return state.goal.weeklyIncome - goalWeeklyTarget();
+    var spent = goalSpentInMonth(state.goal.monthKey);
+    var remainingBudget = goalMonthlyBudget() - spent;
+    var weeks = goalWeeksRemainingInMonth();
+    if (weeks <= 0) return null;
+    return remainingBudget / weeks;
   }
-  function checkGoalWeekTransition(){
-    if (!state.goal || !state.goal.weekStart) return null;
-    var current = thisWeekKey();
+  function checkGoalTransitions(){
+    if (!state.goal) return null;
     var message = null;
+
+    if (state.goal.monthKey !== currentMonthKey()){
+      var oldLabel = monthLabel(state.goal.monthKey);
+      var lastSpent = goalSpentInMonth(state.goal.monthKey);
+      var lastBudget = goalMonthlyBudget();
+      var mdiff = lastBudget - lastSpent;
+      message = mdiff >= 0
+        ? "In " + oldLabel + ", you spent " + formatMoney(lastSpent) + " of your " + formatMoney(lastBudget) + " budget - " + formatMoney(mdiff) + " left over. Starting fresh for " + monthLabel(currentMonthKey()) + "."
+        : "In " + oldLabel + ", you spent " + formatMoney(lastSpent) + ", " + formatMoney(Math.abs(mdiff)) + " over your " + formatMoney(lastBudget) + " budget. Starting fresh for " + monthLabel(currentMonthKey()) + ".";
+      state.goal.monthKey = currentMonthKey();
+      state.goal.weekStart = thisWeekKey();
+      state.goal.weekAllowance = goalWeeklyAllowance();
+      saveData();
+      return message;
+    }
+
+    var current = thisWeekKey();
     var guard = 0;
-    while (state.goal.weekStart !== current && guard < 520){
+    while (state.goal.weekStart !== current && guard < 6){
       var stats = weekStats(state.goal.weekStart);
       var oldAllowance = state.goal.weekAllowance;
       state.goal.weekStart = addDaysToDateStr(state.goal.weekStart, 7);
       state.goal.weekAllowance = goalWeeklyAllowance();
       if (oldAllowance !== null && oldAllowance !== undefined){
-        var diff = oldAllowance - stats.expense;
-        var newAllowanceText = state.goal.weekAllowance !== null ? formatMoney(state.goal.weekAllowance) : "not available - your deadline has passed";
-        message = diff >= 0
-          ? "You spent " + formatMoney(stats.expense) + " last week, " + formatMoney(diff) + " under your allowance. This week's allowance: " + newAllowanceText + "."
-          : "You spent " + formatMoney(stats.expense) + " last week, " + formatMoney(Math.abs(diff)) + " over your allowance. This week's allowance is now " + newAllowanceText + ".";
+        var wdiff = oldAllowance - stats.expense;
+        var newText = state.goal.weekAllowance !== null ? formatMoney(state.goal.weekAllowance) : "not available";
+        message = wdiff >= 0
+          ? "You spent " + formatMoney(stats.expense) + " last week, " + formatMoney(wdiff) + " under your allowance. This week's allowance: " + newText + "."
+          : "You spent " + formatMoney(stats.expense) + " last week, " + formatMoney(Math.abs(wdiff)) + " over your allowance. This week's allowance is now " + newText + ".";
       }
       guard++;
     }
