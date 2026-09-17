@@ -343,9 +343,34 @@
     position:fixed; left:50%; bottom:96px; transform:translate(-50%,10px);
     background:var(--ink); color:var(--bg); font-size:13px; font-weight:500;
     padding:10px 18px; border-radius:22px; opacity:0; pointer-events:none;
-    transition:all .25s ease; z-index:60; white-space:nowrap;
+    transition:all .25s ease; z-index:60; max-width:calc(100% - 40px);
+    display:flex; align-items:center; justify-content:center; flex-wrap:wrap; text-align:center;
   }
-  .toast.show{opacity:1; transform:translate(-50%,0);}
+  .toast.show{opacity:1; transform:translate(-50%,0); pointer-events:auto;}
+
+  /* ---------- Pace indicator ---------- */
+  .pace-line{font-size:13px; color:var(--ink-muted); margin:-8px 2px 20px; line-height:1.5;}
+  .pace-line strong{color:var(--ink); font-weight:600;}
+
+  /* ---------- Savings goal ---------- */
+  .goal-progress-top{display:flex; justify-content:space-between; align-items:baseline; font-size:13px; margin-bottom:6px;}
+  .goal-progress-top .muted{color:var(--ink-muted);}
+  .goal-banner{
+    background:var(--surface-2); border:1px solid var(--border-strong); border-radius:12px;
+    padding:12px 14px; font-size:13px; line-height:1.5; margin-bottom:16px;
+    display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
+  }
+  .goal-banner button{background:none; border:none; color:var(--ink-faint); font-size:17px; line-height:1; padding:0; flex-shrink:0;}
+  .field-input{
+    width:100%; background:var(--surface-2); border:1px solid var(--border-strong); border-radius:12px;
+    color:var(--ink); font-size:15px; padding:11px 14px; margin-bottom:14px; font-variant-numeric:tabular-nums;
+  }
+
+  /* ---------- Toast (undo support) ---------- */
+  .toast-undo-btn{
+    background:none; border:none; border-bottom:1px solid var(--gold); color:var(--gold);
+    font-size:13px; font-weight:600; padding:0; margin-left:10px; cursor:pointer;
+  }
 
   @media (prefers-reduced-motion: reduce){
     *{animation-duration:0.001ms !important; transition-duration:0.001ms !important;}
@@ -377,6 +402,14 @@
             <span class="v" id="monthExpense">$0.00</span>
           </div>
         </div>
+      </div>
+
+      <div class="pace-line" id="paceLine" style="display:none;"></div>
+
+      <div class="section-head" id="goalSectionHead" style="display:none;"><h2>Savings goal</h2></div>
+      <div class="card" id="goalCard" style="display:none;">
+        <div id="goalBannerWrap"></div>
+        <div id="goalBody"></div>
       </div>
 
       <div class="section-head"><h2>Spending by category</h2></div>
@@ -428,6 +461,23 @@
         <div class="add-chip-row">
           <input type="text" id="newCategoryInput" placeholder="New category">
           <button class="btn btn-gold" id="addCategoryBtn">Add</button>
+        </div>
+      </div>
+
+      <div class="set-block">
+        <h3>Savings goal</h3>
+        <div id="goalSummary"></div>
+        <div id="goalForm" style="display:none;">
+          <p class="field-label">Goal amount</p>
+          <input type="number" id="goalAmountInput" class="field-input" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
+          <p class="field-label">Target date</p>
+          <input type="date" id="goalDateInput" class="field-input">
+          <p class="field-label">Expected income per week</p>
+          <input type="number" id="goalIncomeInput" class="field-input" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
+          <div class="btn-row">
+            <button class="btn btn-ghost" type="button" id="goalCancelBtn">Cancel</button>
+            <button class="btn btn-gold" type="button" id="goalSaveBtn">Save goal</button>
+          </div>
         </div>
       </div>
 
@@ -504,7 +554,8 @@
       expense: ["Food","Transport","Housing","Bills","Shopping","Health","Entertainment","Other"],
       income: ["Salary","Gift","Freelance","Other"]
     },
-    transactions: []
+    transactions: [],
+    goal: null
   };
 
   var state = loadData();
@@ -563,12 +614,42 @@
     return d.getFullYear() + "-" + pad2(d.getMonth()+1) + "-" + pad2(d.getDate());
   }
 
-  function showToast(msg){
+  var toastUndoFn = null;
+  function showToast(msg, undoFn){
     var t = document.getElementById("toast");
-    t.textContent = msg;
+    toastUndoFn = undoFn || null;
+    t.innerHTML = escapeHtml(msg) + (undoFn ? ' <button type="button" class="toast-undo-btn">Undo</button>' : '');
     t.classList.add("show");
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(function(){ t.classList.remove("show"); }, 2200);
+    showToast._t = setTimeout(function(){ t.classList.remove("show"); toastUndoFn = null; }, undoFn ? 5000 : 2200);
+  }
+  document.getElementById("toast").addEventListener("click", function(e){
+    if (e.target.classList.contains("toast-undo-btn") && toastUndoFn){
+      var fn = toastUndoFn;
+      toastUndoFn = null;
+      clearTimeout(showToast._t);
+      document.getElementById("toast").classList.remove("show");
+      fn();
+    }
+  });
+
+  var lastDeletedTxn = null;
+  function deleteTransactionWithUndo(id){
+    var idx = state.transactions.findIndex(function(t){ return t.id === id; });
+    if (idx === -1) return;
+    lastDeletedTxn = state.transactions[idx];
+    state.transactions.splice(idx, 1);
+    saveData();
+    renderAll();
+    showToast("Transaction deleted", function(){
+      if (lastDeletedTxn){
+        state.transactions.push(lastDeletedTxn);
+        lastDeletedTxn = null;
+        saveData();
+        renderAll();
+        showToast("Restored");
+      }
+    });
   }
 
   // ---------- Tabs ----------
@@ -616,6 +697,91 @@
     });
   }
 
+  function daysBetween(d1, d2){
+    var a = new Date(d1 + "T00:00:00");
+    var b = new Date(d2 + "T00:00:00");
+    return Math.round((b - a) / 86400000);
+  }
+  function addDaysToDateStr(dateStr, days){
+    var d = new Date(dateStr + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    return d.getFullYear() + "-" + pad2(d.getMonth()+1) + "-" + pad2(d.getDate());
+  }
+  function startOfWeek(dateStr){
+    var d = new Date(dateStr + "T00:00:00");
+    var day = d.getDay();
+    var diff = (day === 0 ? -6 : 1 - day);
+    d.setDate(d.getDate() + diff);
+    return d.getFullYear() + "-" + pad2(d.getMonth()+1) + "-" + pad2(d.getDate());
+  }
+  function thisWeekKey(){ return startOfWeek(todayStr()); }
+  function txnsInWeek(weekStartStr){
+    var endStr = addDaysToDateStr(weekStartStr, 6);
+    return state.transactions.filter(function(t){ return t.date >= weekStartStr && t.date <= endStr; });
+  }
+  function weekStats(weekStartStr){
+    var txns = txnsInWeek(weekStartStr);
+    var income = txns.filter(function(t){return t.type==="income";}).reduce(function(s,t){return s+t.amount;},0);
+    var expense = txns.filter(function(t){return t.type==="expense";}).reduce(function(s,t){return s+t.amount;},0);
+    return { income: income, expense: expense, net: income - expense };
+  }
+
+  function goalProgress(){
+    if (!state.goal) return 0;
+    return state.transactions.filter(function(t){ return t.date >= state.goal.startDate; })
+      .reduce(function(s,t){ return s + (t.type === "income" ? t.amount : -t.amount); }, 0);
+  }
+  function goalWeeksRemaining(){
+    if (!state.goal) return 0;
+    var days = daysBetween(todayStr(), state.goal.targetDate);
+    if (days <= 0) return 0;
+    return Math.max(1, Math.ceil(days / 7));
+  }
+  function goalWeeklyTarget(){
+    if (!state.goal) return 0;
+    var remaining = state.goal.amount - goalProgress();
+    var weeks = goalWeeksRemaining();
+    if (weeks <= 0) return remaining > 0 ? remaining : 0;
+    return remaining / weeks;
+  }
+  function goalWeeklyAllowance(){
+    if (!state.goal) return null;
+    if (goalWeeksRemaining() <= 0) return null;
+    return state.goal.weeklyIncome - goalWeeklyTarget();
+  }
+  function checkGoalWeekTransition(){
+    if (!state.goal || !state.goal.weekStart) return null;
+    var current = thisWeekKey();
+    var message = null;
+    var guard = 0;
+    while (state.goal.weekStart !== current && guard < 520){
+      var stats = weekStats(state.goal.weekStart);
+      var oldAllowance = state.goal.weekAllowance;
+      state.goal.weekStart = addDaysToDateStr(state.goal.weekStart, 7);
+      state.goal.weekAllowance = goalWeeklyAllowance();
+      if (oldAllowance !== null && oldAllowance !== undefined){
+        var diff = oldAllowance - stats.expense;
+        var newAllowanceText = state.goal.weekAllowance !== null ? formatMoney(state.goal.weekAllowance) : "not available - your deadline has passed";
+        message = diff >= 0
+          ? "You spent " + formatMoney(stats.expense) + " last week, " + formatMoney(diff) + " under your allowance. This week's allowance: " + newAllowanceText + "."
+          : "You spent " + formatMoney(stats.expense) + " last week, " + formatMoney(Math.abs(diff)) + " over your allowance. This week's allowance is now " + newAllowanceText + ".";
+      }
+      guard++;
+    }
+    if (message) saveData();
+    return message;
+  }
+
+  function monthProjection(){
+    var now = new Date();
+    var dayOfMonth = now.getDate();
+    var daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    var mTxns = txnsInMonth(currentMonthKey());
+    var spent = mTxns.filter(function(t){return t.type==="expense";}).reduce(function(s,t){return s+t.amount;},0);
+    if (spent <= 0) return null;
+    return { spent: spent, projected: (spent / dayOfMonth) * daysInMonth };
+  }
+
   function categoryTotals(txns, type){
     var totals = {};
     txns.filter(function(t){ return t.type === type; }).forEach(function(t){
@@ -638,6 +804,17 @@
     document.getElementById("monthIncome").textContent = formatMoney(inc);
     document.getElementById("monthExpense").textContent = formatMoney(exp);
 
+    var proj = monthProjection();
+    var paceEl = document.getElementById("paceLine");
+    if (proj){
+      paceEl.style.display = "";
+      paceEl.innerHTML = "At this pace, you're on track for about <strong>" + formatMoney(proj.projected) + "</strong> in expenses this month.";
+    } else {
+      paceEl.style.display = "none";
+    }
+
+    renderGoalOverview();
+
     var totals = categoryTotals(mTxns, "expense");
     var cats = Object.keys(totals).sort(function(a,b){ return totals[b]-totals[a]; });
     var card = document.getElementById("overviewChartCard");
@@ -649,27 +826,30 @@
       if (donutChart){ donutChart.destroy(); donutChart = null; }
       return;
     }
-    card.querySelector(".chart-wrap").style.display = "";
-
     var sumExp = cats.reduce(function(s,c){return s+totals[c];},0);
     var colors = cats.map(colorForCategory);
 
-    if (donutChart){
-      donutChart.data.labels = cats;
-      donutChart.data.datasets[0].data = cats.map(function(c){return totals[c];});
-      donutChart.data.datasets[0].backgroundColor = colors;
-      donutChart.update();
+    if (typeof Chart === "undefined"){
+      card.querySelector(".chart-wrap").style.display = "none";
     } else {
-      var ctx = document.getElementById("donutChart").getContext("2d");
-      donutChart = new Chart(ctx, {
-        type:"doughnut",
-        data:{ labels:cats, datasets:[{ data:cats.map(function(c){return totals[c];}), backgroundColor:colors, borderWidth:0, hoverOffset:6 }] },
-        options:{
-          cutout:"68%",
-          plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:function(ctx){ return ctx.label + ": " + formatMoney(ctx.raw); } } } },
-          maintainAspectRatio:false
-        }
-      });
+      card.querySelector(".chart-wrap").style.display = "";
+      if (donutChart){
+        donutChart.data.labels = cats;
+        donutChart.data.datasets[0].data = cats.map(function(c){return totals[c];});
+        donutChart.data.datasets[0].backgroundColor = colors;
+        donutChart.update();
+      } else {
+        var ctx = document.getElementById("donutChart").getContext("2d");
+        donutChart = new Chart(ctx, {
+          type:"doughnut",
+          data:{ labels:cats, datasets:[{ data:cats.map(function(c){return totals[c];}), backgroundColor:colors, borderWidth:0, hoverOffset:6 }] },
+          options:{
+            cutout:"68%",
+            plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:function(ctx){ return ctx.label + ": " + formatMoney(ctx.raw); } } } },
+            maintainAspectRatio:false
+          }
+        });
+      }
     }
 
     legend.innerHTML = cats.map(function(c){
@@ -679,6 +859,58 @@
         '<span class="pct">'+pct+'%</span>' +
         '<span class="amt">'+formatMoney(totals[c])+'</span></div>';
     }).join("");
+  }
+
+  function renderGoalOverview(){
+    var sectionHead = document.getElementById("goalSectionHead");
+    var card = document.getElementById("goalCard");
+    var bannerWrap = document.getElementById("goalBannerWrap");
+    var body = document.getElementById("goalBody");
+
+    if (!state.goal){
+      sectionHead.style.display = "none";
+      card.style.display = "none";
+      return;
+    }
+    sectionHead.style.display = "";
+    card.style.display = "";
+
+    var transitionMsg = checkGoalWeekTransition();
+    if (transitionMsg){
+      bannerWrap.innerHTML = '<div class="goal-banner"><span>' + transitionMsg + '</span><button type="button" id="goalBannerDismiss" aria-label="Dismiss">&times;</button></div>';
+      document.getElementById("goalBannerDismiss").addEventListener("click", function(){ bannerWrap.innerHTML = ""; });
+    } else {
+      bannerWrap.innerHTML = "";
+    }
+
+    var progress = goalProgress();
+    var progressPct = Math.max(0, Math.min(100, state.goal.amount > 0 ? Math.round(progress / state.goal.amount * 100) : 0));
+    var weeksLeft = goalWeeksRemaining();
+
+    var html = "";
+    html += '<div class="goal-progress-top"><span>' + formatMoney(progress) + ' of ' + formatMoney(state.goal.amount) + ' saved</span>' +
+      '<span class="muted">' + progressPct + '%</span></div>';
+    html += '<div class="bar-track" style="margin-bottom:16px;"><div class="bar-fill" style="width:' + progressPct + '%; background:var(--gold);"></div></div>';
+
+    if (progress >= state.goal.amount){
+      html += '<p style="font-size:13px; color:var(--gold); margin:0;">Goal reached - nicely done.</p>';
+    } else if (weeksLeft <= 0){
+      html += '<p style="font-size:13px; color:var(--rust); margin:0;">Your target date has passed. Head to Settings to set a new one.</p>';
+    } else {
+      var stats = weekStats(thisWeekKey());
+      var allowance = state.goal.weekAllowance;
+      if (allowance !== null && allowance !== undefined && allowance >= 0){
+        var weekPct = allowance > 0 ? (stats.expense / allowance * 100) : (stats.expense > 0 ? 999 : 0);
+        var barWidth = Math.max(0, Math.min(100, weekPct));
+        var barColor = weekPct > 100 ? "var(--rust)" : "var(--gold)";
+        html += '<div class="goal-progress-top"><span>This week: ' + formatMoney(stats.expense) + ' of ' + formatMoney(allowance) + '</span></div>';
+        html += '<div class="bar-track"><div class="bar-fill" style="width:' + barWidth + '%; background:' + barColor + ';"></div></div>';
+      } else {
+        html += '<p style="font-size:13px; color:var(--rust); margin:0;">Your expected income doesn\'t cover this goal\'s pace right now. Try a later date, a smaller goal, or update your expected income in Settings.</p>';
+      }
+      html += '<p style="font-size:12px; color:var(--ink-faint); margin:10px 0 0;">' + weeksLeft + ' week' + (weeksLeft === 1 ? "" : "s") + ' left until ' + new Date(state.goal.targetDate+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"}) + '</p>';
+    }
+    body.innerHTML = html;
   }
 
   // ---------- History ----------
@@ -749,10 +981,7 @@
     list.querySelectorAll(".del-btn").forEach(function(btn){
       btn.addEventListener("click", function(e){
         e.stopPropagation();
-        state.transactions = state.transactions.filter(function(t){ return t.id !== btn.dataset.id; });
-        saveData();
-        renderAll();
-        showToast("Transaction deleted");
+        deleteTransactionWithUndo(btn.dataset.id);
       });
     });
   }
@@ -813,29 +1042,33 @@
       if (barChart){ barChart.destroy(); barChart = null; }
       return;
     }
-    chartWrap.style.display = "";
     var max = totals[cats[0]];
 
-    if (barChart){
-      barChart.data.labels = cats;
-      barChart.data.datasets[0].data = cats.map(function(c){return totals[c];});
-      barChart.data.datasets[0].backgroundColor = cats.map(colorForCategory);
-      barChart.update();
+    if (typeof Chart === "undefined"){
+      chartWrap.style.display = "none";
     } else {
-      var ctx = document.getElementById("barChart").getContext("2d");
-      barChart = new Chart(ctx, {
-        type:"bar",
-        data:{ labels:cats, datasets:[{ data:cats.map(function(c){return totals[c];}), backgroundColor:cats.map(colorForCategory), borderRadius:6, maxBarThickness:22 }] },
-        options:{
-          indexAxis:"y",
-          maintainAspectRatio:false,
-          plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:function(ctx){ return formatMoney(ctx.raw); } } } },
-          scales:{
-            x:{ grid:{color:"rgba(242,237,225,0.08)"}, ticks:{color:"#9CB2A2", font:{size:10}} },
+      chartWrap.style.display = "";
+      if (barChart){
+        barChart.data.labels = cats;
+        barChart.data.datasets[0].data = cats.map(function(c){return totals[c];});
+        barChart.data.datasets[0].backgroundColor = cats.map(colorForCategory);
+        barChart.update();
+      } else {
+        var ctx = document.getElementById("barChart").getContext("2d");
+        barChart = new Chart(ctx, {
+          type:"bar",
+          data:{ labels:cats, datasets:[{ data:cats.map(function(c){return totals[c];}), backgroundColor:cats.map(colorForCategory), borderRadius:6, maxBarThickness:22 }] },
+          options:{
+            indexAxis:"y",
+            maintainAspectRatio:false,
+            plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:function(ctx){ return formatMoney(ctx.raw); } } } },
+            scales:{
+              x:{ grid:{color:"rgba(242,237,225,0.08)"}, ticks:{color:"#9CB2A2", font:{size:10}} },
             y:{ grid:{display:false}, ticks:{color:"#F2EDE1", font:{size:12}} }
           }
         }
       });
+      }
     }
 
     listEl.innerHTML = cats.map(function(c){
@@ -868,6 +1101,7 @@
 
   function renderSettings(){
     currencyInput.value = state.currency;
+    renderGoalSettings();
     var wrap = document.getElementById("categoryChips");
     wrap.innerHTML = state.categories.expense.map(function(c){
       return '<div class="chip">'+escapeHtml(c)+'<button data-cat="'+escapeHtml(c)+'" aria-label="Remove">&times;</button></div>';
@@ -880,6 +1114,81 @@
       });
     });
   }
+
+  function renderGoalSettings(){
+    var summaryEl = document.getElementById("goalSummary");
+    document.getElementById("goalForm").style.display = "none";
+    summaryEl.style.display = "";
+    if (!state.goal){
+      summaryEl.innerHTML = '<p style="font-size:13px; color:var(--ink-muted); margin:0 0 10px;">Set a target and I\'ll work out a sustainable weekly amount to spend.</p>' +
+        '<button class="btn btn-gold btn-block" type="button" id="goalSetupBtn">Set a savings goal</button>';
+      document.getElementById("goalSetupBtn").addEventListener("click", function(){ openGoalForm(false); });
+    } else {
+      var targetLabel = new Date(state.goal.targetDate+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+      summaryEl.innerHTML =
+        '<div class="set-row"><span>Goal</span><span>' + formatMoney(state.goal.amount) + ' by ' + targetLabel + '</span></div>' +
+        '<div class="set-row"><span>Expected income / week</span><span>' + formatMoney(state.goal.weeklyIncome) + '</span></div>' +
+        '<div class="btn-row" style="margin-top:8px;">' +
+          '<button class="btn btn-ghost" type="button" id="goalEditBtn">Edit goal</button>' +
+          '<button class="btn btn-danger" type="button" id="goalRemoveBtn">Remove</button>' +
+        '</div>';
+      document.getElementById("goalEditBtn").addEventListener("click", function(){ openGoalForm(true); });
+      document.getElementById("goalRemoveBtn").addEventListener("click", function(){
+        if (confirm("Remove your savings goal? Your transactions won't be affected.")){
+          state.goal = null;
+          saveData();
+          renderGoalSettings();
+          renderGoalOverview();
+          showToast("Goal removed");
+        }
+      });
+    }
+  }
+
+  function openGoalForm(isEdit){
+    document.getElementById("goalSummary").style.display = "none";
+    document.getElementById("goalForm").style.display = "block";
+    if (isEdit && state.goal){
+      document.getElementById("goalAmountInput").value = state.goal.amount;
+      document.getElementById("goalDateInput").value = state.goal.targetDate;
+      document.getElementById("goalIncomeInput").value = state.goal.weeklyIncome;
+    } else {
+      document.getElementById("goalAmountInput").value = "";
+      document.getElementById("goalDateInput").value = "";
+      document.getElementById("goalIncomeInput").value = "";
+    }
+  }
+
+  document.getElementById("goalCancelBtn").addEventListener("click", function(){
+    renderGoalSettings();
+  });
+
+  document.getElementById("goalSaveBtn").addEventListener("click", function(){
+    var amount = parseFloat(document.getElementById("goalAmountInput").value);
+    var targetDate = document.getElementById("goalDateInput").value;
+    var weeklyIncome = parseFloat(document.getElementById("goalIncomeInput").value);
+    if (!amount || amount <= 0){ showToast("Enter a goal amount"); return; }
+    if (!targetDate){ showToast("Pick a target date"); return; }
+    if (targetDate <= todayStr()){ showToast("Target date needs to be in the future"); return; }
+    if (weeklyIncome === "" || isNaN(weeklyIncome) || weeklyIncome < 0){ showToast("Enter your expected weekly income"); return; }
+
+    var wasEditing = !!state.goal;
+    var startDate = (wasEditing && state.goal.startDate) ? state.goal.startDate : todayStr();
+    var weekStart = (wasEditing && state.goal.weekStart) ? state.goal.weekStart : thisWeekKey();
+    state.goal = {
+      amount: amount,
+      targetDate: targetDate,
+      weeklyIncome: weeklyIncome,
+      startDate: startDate,
+      weekStart: weekStart,
+      weekAllowance: null
+    };
+    state.goal.weekAllowance = goalWeeklyAllowance();
+    saveData();
+    renderGoalSettings();
+    renderGoalOverview();
+    showToast(wasEditing ? "Goal updated" : "Goal set");
+  });
 
   document.getElementById("exportBtn").addEventListener("click", function(){
     var blob = new Blob([JSON.stringify(state, null, 2)], {type:"application/json"});
@@ -1022,12 +1331,9 @@
 
   document.getElementById("deleteTxnBtn").addEventListener("click", function(){
     if (!editingId) return;
-    if (!confirm("Delete this transaction? This can't be undone.")) return;
-    state.transactions = state.transactions.filter(function(t){ return t.id !== editingId; });
-    saveData();
+    var id = editingId;
     closeSheet();
-    renderAll();
-    showToast("Transaction deleted");
+    deleteTransactionWithUndo(id);
   });
 
   // ---------- Utility ----------
@@ -1054,7 +1360,8 @@
     }
 
     var validCats = state.categories[type];
-    var category = validCats.indexOf(rawCategory) !== -1 ? rawCategory : (validCats[0] || "Other");
+    var categoryMatched = rawCategory && validCats.indexOf(rawCategory) !== -1;
+    var category = categoryMatched ? rawCategory : (validCats[0] || "Other");
 
     state.transactions.push({
       id: makeId(),
@@ -1067,7 +1374,11 @@
     });
     saveData();
     renderAll();
-    showToast((type === "income" ? "Income logged: " : "Expense logged: ") + formatMoney(amount));
+    if (categoryMatched){
+      showToast((type === "income" ? "Income logged: " : "Expense logged: ") + formatMoney(amount));
+    } else {
+      showToast('Logged under "' + category + '" - "' + rawCategory + '" didn\'t match any category');
+    }
 
     // Strip the query string so a refresh doesn't log it twice
     history.replaceState({}, document.title, window.location.pathname);
