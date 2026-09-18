@@ -363,6 +363,10 @@
   .history-badge.hit{background:rgba(227,187,99,0.15); color:var(--gold);}
   .history-badge.miss{background:rgba(203,95,53,0.15); color:var(--rust);}
   .history-row-detail{font-size:12px; color:var(--ink-muted);}
+  .lifetime-total{font-family:'Fraunces',serif; font-size:22px; font-weight:500;}
+  .lifetime-total.negative{color:var(--rust);}
+  .lifetime-total.positive{color:var(--gold);}
+  .lifetime-total-label{font-size:12px; color:var(--ink-muted); margin-top:2px;}
   .goal-banner{
     background:var(--surface-2); border:1px solid var(--border-strong); border-radius:12px;
     padding:12px 14px; font-size:13px; line-height:1.5; margin-bottom:16px;
@@ -490,6 +494,7 @@
 
       <div class="set-block" id="goalHistoryBlock" style="display:none;">
         <h3>Savings history</h3>
+        <div id="goalLifetimeTotal" style="margin-bottom:14px;"></div>
         <div id="goalHistoryList"></div>
       </div>
 
@@ -1169,15 +1174,30 @@
     });
   }
 
+  function lifetimeSaved(){
+    var hist = state.goalHistory || [];
+    var total = hist.reduce(function(s,h){ return s + (h.income - h.spent); }, 0);
+    if (state.goal){
+      total += (actualIncomeInMonth(state.goal.monthKey) - goalSpentInMonth(state.goal.monthKey));
+    }
+    return total;
+  }
+
   function renderGoalHistory(){
     var block = document.getElementById("goalHistoryBlock");
     var list = document.getElementById("goalHistoryList");
+    var totalEl = document.getElementById("goalLifetimeTotal");
     var hist = state.goalHistory || [];
     if (hist.length === 0){
       block.style.display = "none";
       return;
     }
     block.style.display = "";
+
+    var total = lifetimeSaved();
+    totalEl.innerHTML = '<div class="lifetime-total ' + (total >= 0 ? "positive" : "negative") + '">' + formatMoney(total) + '</div>' +
+      '<div class="lifetime-total-label">total saved since you started' + (state.goal ? ", including this month so far" : "") + '</div>';
+
     var sorted = hist.slice().reverse();
     list.innerHTML = sorted.map(function(h){
       var saved = h.income - h.spent;
