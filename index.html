@@ -455,6 +455,12 @@
         <div class="chart-wrap" style="height:220px;"><canvas id="barChart"></canvas></div>
       </div>
       <div class="bar-list" id="insightsList"></div>
+
+      <div class="section-head" id="goalSectionHead2" style="display:none;"><h2>Savings history</h2></div>
+      <div class="card" id="goalHistoryBlock" style="display:none;">
+        <div id="goalLifetimeTotal" style="margin-bottom:14px;"></div>
+        <div id="goalHistoryList"></div>
+      </div>
     </section>
 
     <!-- SETTINGS -->
@@ -490,12 +496,6 @@
             <button class="btn btn-gold" type="button" id="goalSaveBtn">Save goal</button>
           </div>
         </div>
-      </div>
-
-      <div class="set-block" id="goalHistoryBlock" style="display:none;">
-        <h3>Savings history</h3>
-        <div id="goalLifetimeTotal" style="margin-bottom:14px;"></div>
-        <div id="goalHistoryList"></div>
       </div>
 
       <div class="set-block">
@@ -1098,6 +1098,7 @@
       listEl.innerHTML = '<div class="empty"><strong>Nothing to show</strong>No expenses logged for this period yet.</div>';
       chartWrap.style.display = "none";
       if (barChart){ barChart.destroy(); barChart = null; }
+      renderGoalHistory();
       return;
     }
     var max = totals[cats[0]];
@@ -1134,6 +1135,8 @@
       return '<div class="bar-item"><div class="top"><span>'+escapeHtml(c)+'</span><span class="amt">'+formatMoney(totals[c])+'</span></div>' +
         '<div class="bar-track"><div class="bar-fill" style="width:'+pct+'%; background:'+colorForCategory(c)+'"></div></div></div>';
     }).join("");
+
+    renderGoalHistory();
   }
 
   // ---------- Settings ----------
@@ -1160,7 +1163,6 @@
   function renderSettings(){
     currencyInput.value = state.currency;
     renderGoalSettings();
-    renderGoalHistory();
     var wrap = document.getElementById("categoryChips");
     wrap.innerHTML = state.categories.expense.map(function(c){
       return '<div class="chip">'+escapeHtml(c)+'<button data-cat="'+escapeHtml(c)+'" aria-label="Remove">&times;</button></div>';
@@ -1184,14 +1186,17 @@
   }
 
   function renderGoalHistory(){
+    var head = document.getElementById("goalSectionHead2");
     var block = document.getElementById("goalHistoryBlock");
     var list = document.getElementById("goalHistoryList");
     var totalEl = document.getElementById("goalLifetimeTotal");
     var hist = state.goalHistory || [];
     if (hist.length === 0){
+      head.style.display = "none";
       block.style.display = "none";
       return;
     }
+    head.style.display = "";
     block.style.display = "";
 
     var total = lifetimeSaved();
