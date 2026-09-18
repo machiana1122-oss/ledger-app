@@ -470,6 +470,7 @@
         <div id="goalForm" style="display:none;">
           <p class="field-label">Expected income this month</p>
           <input type="number" id="goalIncomeInput" class="field-input" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
+          <p style="font-size:12px; color:var(--ink-faint); margin:-9px 0 14px; line-height:1.4;">Fills in automatically from what you actually earned last month, and rolls forward each month after that. Edit it if this month looks different.</p>
           <p class="field-label">How much you want to save this month</p>
           <input type="number" id="goalSavingsInput" class="field-input" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
           <div class="btn-row">
@@ -728,6 +729,12 @@
     var parts = monthKeyStr.split("-");
     return new Date(parseInt(parts[0],10), parseInt(parts[1],10), 0).getDate();
   }
+  function actualIncomeInMonth(monthKeyStr){
+    return txnsInMonth(monthKeyStr).filter(function(t){return t.type==="income";}).reduce(function(s,t){return s+t.amount;},0);
+  }
+  function lastMonthActualIncome(){
+    return actualIncomeInMonth(lastMonthKey());
+  }
   function goalMonthlyBudget(){
     if (!state.goal) return 0;
     return state.goal.monthlyIncome - state.goal.monthlySavings;
@@ -764,6 +771,13 @@
       message = mdiff >= 0
         ? "In " + oldLabel + ", you spent " + formatMoney(lastSpent) + " of your " + formatMoney(lastBudget) + " budget - " + formatMoney(mdiff) + " left over. Starting fresh for " + monthLabel(currentMonthKey()) + "."
         : "In " + oldLabel + ", you spent " + formatMoney(lastSpent) + ", " + formatMoney(Math.abs(mdiff)) + " over your " + formatMoney(lastBudget) + " budget. Starting fresh for " + monthLabel(currentMonthKey()) + ".";
+
+      var actualIncome = actualIncomeInMonth(state.goal.monthKey);
+      if (actualIncome > 0 && Math.abs(actualIncome - state.goal.monthlyIncome) > 0.01){
+        message += " Income updated to " + formatMoney(actualIncome) + " based on what you logged.";
+        state.goal.monthlyIncome = actualIncome;
+      }
+
       state.goal.monthKey = currentMonthKey();
       state.goal.weekStart = thisWeekKey();
       state.goal.weekAllowance = goalWeeklyAllowance();
@@ -1167,7 +1181,8 @@
       document.getElementById("goalIncomeInput").value = state.goal.monthlyIncome;
       document.getElementById("goalSavingsInput").value = state.goal.monthlySavings;
     } else {
-      document.getElementById("goalIncomeInput").value = "";
+      var lastIncome = lastMonthActualIncome();
+      document.getElementById("goalIncomeInput").value = lastIncome > 0 ? lastIncome : "";
       document.getElementById("goalSavingsInput").value = "";
     }
   }
