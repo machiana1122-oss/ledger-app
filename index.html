@@ -355,6 +355,14 @@
   /* ---------- Savings goal ---------- */
   .goal-progress-top{display:flex; justify-content:space-between; align-items:baseline; font-size:13px; margin-bottom:6px;}
   .goal-progress-top .muted{color:var(--ink-muted);}
+  .history-row{padding:12px 0; border-bottom:1px solid var(--border);}
+  .history-row:last-child{border-bottom:none;}
+  .history-row-top{display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;}
+  .history-row-top .month{font-size:14px; font-weight:600;}
+  .history-badge{font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; text-transform:uppercase; letter-spacing:0.03em;}
+  .history-badge.hit{background:rgba(227,187,99,0.15); color:var(--gold);}
+  .history-badge.miss{background:rgba(203,95,53,0.15); color:var(--rust);}
+  .history-row-detail{font-size:12px; color:var(--ink-muted);}
   .goal-banner{
     background:var(--surface-2); border:1px solid var(--border-strong); border-radius:12px;
     padding:12px 14px; font-size:13px; line-height:1.5; margin-bottom:16px;
@@ -480,6 +488,11 @@
         </div>
       </div>
 
+      <div class="set-block" id="goalHistoryBlock" style="display:none;">
+        <h3>Savings history</h3>
+        <div id="goalHistoryList"></div>
+      </div>
+
       <div class="set-block">
         <h3>Your data</h3>
         <p style="font-size:13px; color:var(--ink-muted); margin-top:0;">Everything is stored only on this device. Export a backup now and then in case you switch phones or clear your browser data.</p>
@@ -554,7 +567,8 @@
       income: ["Salary","Gift","Freelance","Other"]
     },
     transactions: [],
-    goal: null
+    goal: null,
+    goalHistory: []
   };
 
   var state = loadData();
@@ -773,6 +787,15 @@
         : "In " + oldLabel + ", you spent " + formatMoney(lastSpent) + ", " + formatMoney(Math.abs(mdiff)) + " over your " + formatMoney(lastBudget) + " budget. Starting fresh for " + monthLabel(currentMonthKey()) + ".";
 
       var actualIncome = actualIncomeInMonth(state.goal.monthKey);
+      if (!state.goalHistory) state.goalHistory = [];
+      state.goalHistory.push({
+        monthKey: state.goal.monthKey,
+        income: actualIncome > 0 ? actualIncome : state.goal.monthlyIncome,
+        savingsTarget: state.goal.monthlySavings,
+        spent: lastSpent
+      });
+      if (state.goalHistory.length > 24) state.goalHistory = state.goalHistory.slice(-24);
+
       if (actualIncome > 0 && Math.abs(actualIncome - state.goal.monthlyIncome) > 0.01){
         message += " Income updated to " + formatMoney(actualIncome) + " based on what you logged.";
         state.goal.monthlyIncome = actualIncome;
@@ -1132,6 +1155,7 @@
   function renderSettings(){
     currencyInput.value = state.currency;
     renderGoalSettings();
+    renderGoalHistory();
     var wrap = document.getElementById("categoryChips");
     wrap.innerHTML = state.categories.expense.map(function(c){
       return '<div class="chip">'+escapeHtml(c)+'<button data-cat="'+escapeHtml(c)+'" aria-label="Remove">&times;</button></div>';
@@ -1143,6 +1167,29 @@
         renderSettings();
       });
     });
+  }
+
+  function renderGoalHistory(){
+    var block = document.getElementById("goalHistoryBlock");
+    var list = document.getElementById("goalHistoryList");
+    var hist = state.goalHistory || [];
+    if (hist.length === 0){
+      block.style.display = "none";
+      return;
+    }
+    block.style.display = "";
+    var sorted = hist.slice().reverse();
+    list.innerHTML = sorted.map(function(h){
+      var saved = h.income - h.spent;
+      var hit = saved >= h.savingsTarget;
+      var diff = saved - h.savingsTarget;
+      var diffText = (diff >= 0 ? "+" : "-") + formatMoney(Math.abs(diff));
+      return '<div class="history-row">' +
+          '<div class="history-row-top"><span class="month">' + monthLabel(h.monthKey) + '</span>' +
+            '<span class="history-badge ' + (hit ? "hit" : "miss") + '">' + (hit ? "Hit" : "Short") + '</span></div>' +
+          '<div class="history-row-detail">Saved ' + formatMoney(saved) + ' of ' + formatMoney(h.savingsTarget) + ' target (' + diffText + ')</div>' +
+        '</div>';
+    }).join("");
   }
 
   function renderGoalSettings(){
