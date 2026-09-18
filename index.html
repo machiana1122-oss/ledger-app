@@ -468,12 +468,10 @@
         <h3>Savings goal</h3>
         <div id="goalSummary"></div>
         <div id="goalForm" style="display:none;">
-          <p class="field-label">Goal amount</p>
-          <input type="number" id="goalAmountInput" class="field-input" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
-          <p class="field-label">Target date</p>
-          <input type="date" id="goalDateInput" class="field-input">
-          <p class="field-label">Expected income per week</p>
+          <p class="field-label">Expected income this month</p>
           <input type="number" id="goalIncomeInput" class="field-input" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
+          <p class="field-label">How much you want to save this month</p>
+          <input type="number" id="goalSavingsInput" class="field-input" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
           <div class="btn-row">
             <button class="btn btn-ghost" type="button" id="goalCancelBtn">Cancel</button>
             <button class="btn btn-gold" type="button" id="goalSaveBtn">Save goal</button>
@@ -896,7 +894,7 @@
     sectionHead.style.display = "";
     card.style.display = "";
 
-    var transitionMsg = checkGoalWeekTransition();
+    var transitionMsg = checkGoalTransitions();
     if (transitionMsg){
       bannerWrap.innerHTML = '<div class="goal-banner"><span>' + transitionMsg + '</span><button type="button" id="goalBannerDismiss" aria-label="Dismiss">&times;</button></div>';
       document.getElementById("goalBannerDismiss").addEventListener("click", function(){ bannerWrap.innerHTML = ""; });
@@ -904,33 +902,30 @@
       bannerWrap.innerHTML = "";
     }
 
-    var progress = goalProgress();
-    var progressPct = Math.max(0, Math.min(100, state.goal.amount > 0 ? Math.round(progress / state.goal.amount * 100) : 0));
-    var weeksLeft = goalWeeksRemaining();
+    var monthlyBudget = goalMonthlyBudget();
+    var spent = goalSpentInMonth(state.goal.monthKey);
+    var spentPct = monthlyBudget > 0 ? Math.round(spent / monthlyBudget * 100) : (spent > 0 ? 999 : 0);
+    var barWidthMonth = Math.max(0, Math.min(100, spentPct));
 
     var html = "";
-    html += '<div class="goal-progress-top"><span>' + formatMoney(progress) + ' of ' + formatMoney(state.goal.amount) + ' saved</span>' +
-      '<span class="muted">' + progressPct + '%</span></div>';
-    html += '<div class="bar-track" style="margin-bottom:16px;"><div class="bar-fill" style="width:' + progressPct + '%; background:var(--gold);"></div></div>';
+    html += '<div class="goal-progress-top"><span>' + formatMoney(spent) + ' of ' + formatMoney(monthlyBudget) + ' spent this month</span>' +
+      '<span class="muted">' + Math.max(0,spentPct) + '%</span></div>';
+    html += '<div class="bar-track" style="margin-bottom:16px;"><div class="bar-fill" style="width:' + barWidthMonth + '%; background:' + (spentPct > 100 ? "var(--rust)" : "var(--gold)") + ';"></div></div>';
 
-    if (progress >= state.goal.amount){
-      html += '<p style="font-size:13px; color:var(--gold); margin:0;">Goal reached - nicely done.</p>';
-    } else if (weeksLeft <= 0){
-      html += '<p style="font-size:13px; color:var(--rust); margin:0;">Your target date has passed. Head to Settings to set a new one.</p>';
+    var weeksLeft = goalWeeksRemainingInMonth();
+    var stats = weekStats(thisWeekKey());
+    var allowance = state.goal.weekAllowance;
+    if (allowance !== null && allowance !== undefined && allowance >= 0){
+      var weekPct = allowance > 0 ? (stats.expense / allowance * 100) : (stats.expense > 0 ? 999 : 0);
+      var barWidth = Math.max(0, Math.min(100, weekPct));
+      var barColor = weekPct > 100 ? "var(--rust)" : "var(--gold)";
+      html += '<div class="goal-progress-top"><span>This week: ' + formatMoney(stats.expense) + ' of ' + formatMoney(allowance) + '</span></div>';
+      html += '<div class="bar-track"><div class="bar-fill" style="width:' + barWidth + '%; background:' + barColor + ';"></div></div>';
     } else {
-      var stats = weekStats(thisWeekKey());
-      var allowance = state.goal.weekAllowance;
-      if (allowance !== null && allowance !== undefined && allowance >= 0){
-        var weekPct = allowance > 0 ? (stats.expense / allowance * 100) : (stats.expense > 0 ? 999 : 0);
-        var barWidth = Math.max(0, Math.min(100, weekPct));
-        var barColor = weekPct > 100 ? "var(--rust)" : "var(--gold)";
-        html += '<div class="goal-progress-top"><span>This week: ' + formatMoney(stats.expense) + ' of ' + formatMoney(allowance) + '</span></div>';
-        html += '<div class="bar-track"><div class="bar-fill" style="width:' + barWidth + '%; background:' + barColor + ';"></div></div>';
-      } else {
-        html += '<p style="font-size:13px; color:var(--rust); margin:0;">Your expected income doesn\'t cover this goal\'s pace right now. Try a later date, a smaller goal, or update your expected income in Settings.</p>';
-      }
-      html += '<p style="font-size:12px; color:var(--ink-faint); margin:10px 0 0;">' + weeksLeft + ' week' + (weeksLeft === 1 ? "" : "s") + ' left until ' + new Date(state.goal.targetDate+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"}) + '</p>';
+      html += '<p style="font-size:13px; color:var(--rust); margin:0;">This month\'s budget is already fully spent (or your numbers don\'t leave room to spend). Adjust your goal in Settings if that looks off.</p>';
     }
+    html += '<p style="font-size:12px; color:var(--ink-faint); margin:10px 0 0;">' + weeksLeft + ' week' + (weeksLeft === 1 ? "" : "s") + ' left in ' + monthLabel(state.goal.monthKey) + '</p>';
+
     body.innerHTML = html;
   }
 
@@ -1141,14 +1136,13 @@
     document.getElementById("goalForm").style.display = "none";
     summaryEl.style.display = "";
     if (!state.goal){
-      summaryEl.innerHTML = '<p style="font-size:13px; color:var(--ink-muted); margin:0 0 10px;">Set a target and I\'ll work out a sustainable weekly amount to spend.</p>' +
+      summaryEl.innerHTML = '<p style="font-size:13px; color:var(--ink-muted); margin:0 0 10px;">Tell me what you earn and want to save each month, and I\'ll work out a weekly spending number.</p>' +
         '<button class="btn btn-gold btn-block" type="button" id="goalSetupBtn">Set a savings goal</button>';
       document.getElementById("goalSetupBtn").addEventListener("click", function(){ openGoalForm(false); });
     } else {
-      var targetLabel = new Date(state.goal.targetDate+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
       summaryEl.innerHTML =
-        '<div class="set-row"><span>Goal</span><span>' + formatMoney(state.goal.amount) + ' by ' + targetLabel + '</span></div>' +
-        '<div class="set-row"><span>Expected income / week</span><span>' + formatMoney(state.goal.weeklyIncome) + '</span></div>' +
+        '<div class="set-row"><span>Monthly income</span><span>' + formatMoney(state.goal.monthlyIncome) + '</span></div>' +
+        '<div class="set-row"><span>Monthly savings target</span><span>' + formatMoney(state.goal.monthlySavings) + '</span></div>' +
         '<div class="btn-row" style="margin-top:8px;">' +
           '<button class="btn btn-ghost" type="button" id="goalEditBtn">Edit goal</button>' +
           '<button class="btn btn-danger" type="button" id="goalRemoveBtn">Remove</button>' +
@@ -1170,13 +1164,11 @@
     document.getElementById("goalSummary").style.display = "none";
     document.getElementById("goalForm").style.display = "block";
     if (isEdit && state.goal){
-      document.getElementById("goalAmountInput").value = state.goal.amount;
-      document.getElementById("goalDateInput").value = state.goal.targetDate;
-      document.getElementById("goalIncomeInput").value = state.goal.weeklyIncome;
+      document.getElementById("goalIncomeInput").value = state.goal.monthlyIncome;
+      document.getElementById("goalSavingsInput").value = state.goal.monthlySavings;
     } else {
-      document.getElementById("goalAmountInput").value = "";
-      document.getElementById("goalDateInput").value = "";
       document.getElementById("goalIncomeInput").value = "";
+      document.getElementById("goalSavingsInput").value = "";
     }
   }
 
@@ -1185,23 +1177,18 @@
   });
 
   document.getElementById("goalSaveBtn").addEventListener("click", function(){
-    var amount = parseFloat(document.getElementById("goalAmountInput").value);
-    var targetDate = document.getElementById("goalDateInput").value;
-    var weeklyIncome = parseFloat(document.getElementById("goalIncomeInput").value);
-    if (!amount || amount <= 0){ showToast("Enter a goal amount"); return; }
-    if (!targetDate){ showToast("Pick a target date"); return; }
-    if (targetDate <= todayStr()){ showToast("Target date needs to be in the future"); return; }
-    if (weeklyIncome === "" || isNaN(weeklyIncome) || weeklyIncome < 0){ showToast("Enter your expected weekly income"); return; }
+    var monthlyIncome = parseFloat(document.getElementById("goalIncomeInput").value);
+    var monthlySavings = parseFloat(document.getElementById("goalSavingsInput").value);
+    if (isNaN(monthlyIncome) || monthlyIncome < 0){ showToast("Enter your expected monthly income"); return; }
+    if (!monthlySavings || monthlySavings <= 0){ showToast("Enter how much you want to save"); return; }
+    if (monthlySavings >= monthlyIncome){ showToast("Your savings target needs to be less than your income"); return; }
 
     var wasEditing = !!state.goal;
-    var startDate = (wasEditing && state.goal.startDate) ? state.goal.startDate : todayStr();
-    var weekStart = (wasEditing && state.goal.weekStart) ? state.goal.weekStart : thisWeekKey();
     state.goal = {
-      amount: amount,
-      targetDate: targetDate,
-      weeklyIncome: weeklyIncome,
-      startDate: startDate,
-      weekStart: weekStart,
+      monthlyIncome: monthlyIncome,
+      monthlySavings: monthlySavings,
+      monthKey: currentMonthKey(),
+      weekStart: thisWeekKey(),
       weekAllowance: null
     };
     state.goal.weekAllowance = goalWeeklyAllowance();
