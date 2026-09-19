@@ -246,6 +246,7 @@
     padding:8px 8px 8px 14px; font-size:13px;
   }
   .chip button{background:none; border:none; color:var(--ink-faint); font-size:15px; padding:0 4px;}
+  .chip-label{cursor:pointer;}
   .add-chip-row{display:flex; gap:8px; margin-top:10px;}
   .add-chip-row input{
     flex:1; background:var(--surface); border:1px solid var(--border-strong); border-radius:11px;
@@ -475,6 +476,7 @@
 
       <div class="set-block">
         <h3>Expense categories</h3>
+        <p style="font-size:12px; color:var(--ink-faint); margin:-6px 0 10px;">Tap a category to rename it.</p>
         <div class="chip-wrap" id="categoryChips"></div>
         <div class="add-chip-row">
           <input type="text" id="newCategoryInput" placeholder="New category">
@@ -585,12 +587,34 @@
   var donutChart = null;
   var barChart = null;
 
+  function normalizeState(parsed){
+    if (typeof parsed.currency !== "string" || !parsed.currency) parsed.currency = DEFAULT_STATE.currency;
+    if (!parsed.categories || typeof parsed.categories !== "object"){
+      parsed.categories = JSON.parse(JSON.stringify(DEFAULT_STATE.categories));
+    } else {
+      if (!Array.isArray(parsed.categories.expense) || parsed.categories.expense.length === 0){
+        parsed.categories.expense = JSON.parse(JSON.stringify(DEFAULT_STATE.categories.expense));
+      }
+      if (!Array.isArray(parsed.categories.income) || parsed.categories.income.length === 0){
+        parsed.categories.income = JSON.parse(JSON.stringify(DEFAULT_STATE.categories.income));
+      }
+    }
+    if (!Array.isArray(parsed.transactions)) parsed.transactions = [];
+    if (parsed.goal === undefined) parsed.goal = null;
+    if (!Array.isArray(parsed.goalHistory)) parsed.goalHistory = [];
+    return parsed;
+  }
+
   function loadData(){
     try{
       var raw = localStorage.getItem(STORAGE_KEY);
       if (raw){
         var parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.transactions)) return parsed;
+        if (parsed && Array.isArray(parsed.transactions)){
+          var normalized = normalizeState(parsed);
+          try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)); }catch(e2){}
+          return normalized;
+        }
       }
     }catch(e){ /* storage unavailable in this context - fall back to defaults */ }
     return JSON.parse(JSON.stringify(DEFAULT_STATE));
@@ -705,8 +729,9 @@
 
   function currentMonthKey(){ return todayStr().slice(0,7); }
   function lastMonthKey(){
-    var d = new Date(); d.setMonth(d.getMonth() - 1);
-    return d.toISOString().slice(0,7);
+    var d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return d.getFullYear() + "-" + pad2(d.getMonth()+1);
   }
   function txnsInMonthUpToDay(key, day){
     return state.transactions.filter(function(t){
@@ -1149,11 +1174,52 @@
     showToast("Currency updated");
   });
 
+  var renamingCategory = null;
+
+  document.getElementById("newCategoryInput").addEventListener("input", function(e){
+    if (renamingCategory && e.target.value.trim() === ""){
+      renamingCategory = null;
+      document.getElementById("addCategoryBtn").textContent = "Add";
+    }
+  });
+
   document.getElementById("addCategoryBtn").addEventListener("click", function(){
     var input = document.getElementById("newCategoryInput");
     var val = input.value.trim();
     if (!val) return;
-    if (state.categories.expense.indexOf(val) === -1) state.categories.expense.push(val);
+
+    if (renamingCategory){
+      var oldName = renamingCategory;
+      if (val === oldName){
+        renamingCategory = null;
+        input.value = "";
+        document.getElementById("addCategoryBtn").textContent = "Add";
+        return;
+      }
+      if (state.categories.expense.indexOf(val) !== -1){
+        showToast("That category already exists");
+        return;
+      }
+      var idx = state.categories.expense.indexOf(oldName);
+      if (idx !== -1) state.categories.expense[idx] = val;
+      else state.categories.expense.push(val);
+      state.transactions.forEach(function(t){
+        if (t.type === "expense" && t.category === oldName) t.category = val;
+      });
+      renamingCategory = null;
+      input.value = "";
+      document.getElementById("addCategoryBtn").textContent = "Add";
+      saveData();
+      renderAll();
+      showToast("Renamed to " + val);
+      return;
+    }
+
+    if (state.categories.expense.indexOf(val) !== -1){
+      showToast("That category already exists");
+      return;
+    }
+    state.categories.expense.push(val);
     input.value = "";
     saveData();
     renderSettings();
@@ -1165,13 +1231,38 @@
     renderGoalSettings();
     var wrap = document.getElementById("categoryChips");
     wrap.innerHTML = state.categories.expense.map(function(c){
-      return '<div class="chip">'+escapeHtml(c)+'<button data-cat="'+escapeHtml(c)+'" aria-label="Remove">&times;</button></div>';
+      return '<div class="chip"><span class="chip-label" data-cat="'+escapeHtml(c)+'" role="button" tabindex="0">'+escapeHtml(c)+'</span>' +
+        '<button data-cat="'+escapeHtml(c)+'" aria-label="Remove">&times;</button></div>';
     }).join("");
-    wrap.querySelectorAll("button").forEach(function(btn){
+
+    function startRename(cat){
+      renamingCategory = cat;
+      var input = document.getElementById("newCategoryInput");
+      input.value = cat;
+      input.focus();
+      document.getElementById("addCategoryBtn").textContent = "Rename";
+    }
+    wrap.querySelectorAll(".chip-label").forEach(function(el){
+      el.addEventListener("click", function(){ startRename(el.dataset.cat); });
+      el.addEventListener("keydown", function(e){
+        if (e.key === "Enter" || e.key === " "){ e.preventDefault(); startRename(el.dataset.cat); }
+      });
+    });
+    wrap.querySelectorAll(".chip > button").forEach(function(btn){
       btn.addEventListener("click", function(){
+        if (state.categories.expense.length <= 1){
+          showToast("You need at least one expense category");
+          return;
+        }
+        if (renamingCategory === btn.dataset.cat){
+          renamingCategory = null;
+          document.getElementById("newCategoryInput").value = "";
+          document.getElementById("addCategoryBtn").textContent = "Add";
+        }
         state.categories.expense = state.categories.expense.filter(function(c){ return c !== btn.dataset.cat; });
         saveData();
         renderSettings();
+        showToast("Category removed");
       });
     });
   }
@@ -1240,6 +1331,7 @@
           saveData();
           renderGoalSettings();
           renderGoalOverview();
+          renderGoalHistory();
           showToast("Goal removed");
         }
       });
@@ -1309,7 +1401,7 @@
       try{
         var parsed = JSON.parse(ev.target.result);
         if (parsed && Array.isArray(parsed.transactions)){
-          state = parsed;
+          state = normalizeState(parsed);
           saveData();
           renderAll();
           showToast("Backup restored");
