@@ -489,10 +489,10 @@
         <div id="goalSummary"></div>
         <div id="goalForm" style="display:none;">
           <p class="field-label">Expected income this month</p>
-          <input type="number" id="goalIncomeInput" class="field-input" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
+          <input type="text" id="goalIncomeInput" class="field-input" inputmode="decimal" placeholder="0.00">
           <p style="font-size:12px; color:var(--ink-faint); margin:-9px 0 14px; line-height:1.4;">Fills in automatically from what you actually earned last month, and rolls forward each month after that. Edit it if this month looks different.</p>
           <p class="field-label">How much you want to save this month</p>
-          <input type="number" id="goalSavingsInput" class="field-input" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
+          <input type="text" id="goalSavingsInput" class="field-input" inputmode="decimal" placeholder="0.00">
           <div class="btn-row">
             <button class="btn btn-ghost" type="button" id="goalCancelBtn">Cancel</button>
             <button class="btn btn-gold" type="button" id="goalSaveBtn">Save goal</button>
@@ -545,8 +545,8 @@
     <button type="button" data-type="income">Income</button>
   </div>
   <div class="amt-input-wrap">
+    <input type="text" id="amountInput" inputmode="decimal" placeholder="0.00">
     <span class="cs" id="sheetCurrencySign">$</span>
-    <input type="number" id="amountInput" inputmode="decimal" placeholder="0.00" step="0.01" min="0">
   </div>
   <p class="field-label">Category</p>
   <div class="cat-picker" id="catPicker"></div>
@@ -634,7 +634,11 @@
   function formatMoney(amount){
     var sign = amount < 0 ? "-" : "";
     var abs = Math.abs(amount);
-    return sign + state.currency + abs.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+    return sign + abs.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + " " + state.currency;
+  }
+  function parseAmount(str){
+    if (str === null || str === undefined) return NaN;
+    return parseFloat(String(str).trim().replace(",", "."));
   }
 
   function colorForCategory(name){
@@ -1356,8 +1360,8 @@
   });
 
   document.getElementById("goalSaveBtn").addEventListener("click", function(){
-    var monthlyIncome = parseFloat(document.getElementById("goalIncomeInput").value);
-    var monthlySavings = parseFloat(document.getElementById("goalSavingsInput").value);
+    var monthlyIncome = parseAmount(document.getElementById("goalIncomeInput").value);
+    var monthlySavings = parseAmount(document.getElementById("goalSavingsInput").value);
     if (isNaN(monthlyIncome) || monthlyIncome < 0){ showToast("Enter your expected monthly income"); return; }
     if (!monthlySavings || monthlySavings <= 0){ showToast("Enter how much you want to save"); return; }
     if (monthlySavings >= monthlyIncome){ showToast("Your savings target needs to be less than your income"); return; }
@@ -1480,7 +1484,7 @@
 
   document.getElementById("saveTxnBtn").addEventListener("click", function(){
     var amtField = document.getElementById("amountInput");
-    var amount = parseFloat(amtField.value);
+    var amount = parseAmount(amtField.value);
     if (!amount || amount <= 0){ amtField.focus(); showToast("Enter an amount"); return; }
     if (!selectedCategory){ showToast("Pick a category"); return; }
     var date = document.getElementById("dateInput").value || todayStr();
@@ -1536,7 +1540,7 @@
     if (params.get("quickadd") !== "1") return;
 
     var type = params.get("type") === "income" ? "income" : "expense";
-    var amount = parseFloat(params.get("amount"));
+    var amount = parseAmount(params.get("amount"));
     var rawCategory = params.get("category") || "";
     var note = params.get("note") || "";
 
