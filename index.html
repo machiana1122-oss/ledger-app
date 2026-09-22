@@ -1566,7 +1566,7 @@
     saveData();
     renderAll();
     if (categoryMatched){
-      showToast((type === "income" ? "Income logged: " : "Expense logged: ") + formatMoney(amount));
+      showToast((type === "income" ? "Income logged: " : "Expense logged: ") + formatMoney(amount) + " - " + category);
     } else {
       showToast('Logged under "' + category + '" - "' + rawCategory + '" didn\'t match any category');
     }
