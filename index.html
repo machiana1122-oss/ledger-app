@@ -320,14 +320,20 @@
   .type-toggle{display:flex; background:var(--surface); border-radius:13px; padding:4px; margin-bottom:18px;}
   .type-toggle button{flex:1; background:none; border:none; border-radius:10px; padding:9px 0; font-size:14px; font-weight:600; color:var(--ink-muted);}
   .type-toggle button.active{background:var(--gold); color:#16281F;}
-  .amt-input-wrap{display:flex; align-items:baseline; gap:6px; border-bottom:2px solid var(--border-strong); padding-bottom:10px; margin-bottom:20px;}
+  .amt-input-wrap{
+    display:flex; align-items:baseline; gap:6px; border-bottom:2px solid var(--border-strong);
+    padding-bottom:10px; margin-bottom:20px; transition:border-color .2s ease;
+  }
+  .amt-input-wrap:focus-within{border-bottom-color:var(--gold);}
   .amt-input-wrap .cs{font-family:var(--font-display); font-size:26px; color:var(--ink-muted);}
+  /* The gold underline on the wrapper is this field's focus indicator */
   .amt-input-wrap input{
-    flex:1; background:none; border:none; font-family:var(--font-display);
+    flex:1; min-width:0; width:100%; margin:0; padding:0; border:none; border-radius:0; outline:none;
+    background:none; font-family:var(--font-display);
     font-size:34px; font-weight:500; color:var(--ink); font-variant-numeric:tabular-nums;
   }
   .field-label{font-size:12px; color:var(--ink-muted); margin:0 0 8px; font-weight:500;}
-  .sheet input[type="text"], .sheet input[type="date"]{
+  .sheet-input{
     width:100%; background:var(--surface); border:1px solid var(--border-strong); border-radius:12px;
     padding:12px 14px; font-size:14px; margin-bottom:18px;
   }
@@ -337,6 +343,8 @@
     padding:9px 15px; font-size:13px; color:var(--ink-muted);
   }
   .cat-pill.active{background:var(--gold); border-color:var(--gold); color:#16281F; font-weight:600;}
+  .cat-pill.removed{border-style:dashed;}
+  .cat-pill-note{font-size:11px; font-weight:500; opacity:0.75; margin-left:6px;}
   .sheet .btn-danger{margin-top:10px;}
 
   /* ---------- Toast ---------- */
@@ -374,6 +382,7 @@
     display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
   }
   .goal-banner button{background:none; border:none; color:var(--ink-faint); font-size:17px; line-height:1; padding:0; flex-shrink:0;}
+  .goal-banner-list{margin:6px 0; padding-left:18px;}
   .field-input{
     width:100%; background:var(--surface-2); border:1px solid var(--border-strong); border-radius:12px;
     color:var(--ink); font-size:15px; padding:11px 14px; margin-bottom:14px; font-variant-numeric:tabular-nums;
@@ -507,7 +516,7 @@
           <button class="btn btn-ghost" id="exportBtn">Export backup</button>
           <button class="btn btn-ghost" id="importBtn">Import backup</button>
         </div>
-        <input type="file" id="importFile" accept="application/json" style="display:none;">
+        <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
         <button class="btn btn-danger btn-block" id="resetBtn">Erase all data</button>
       </div>
     </section>
@@ -551,9 +560,9 @@
   <p class="field-label">Category</p>
   <div class="cat-picker" id="catPicker"></div>
   <p class="field-label">Date</p>
-  <input type="date" id="dateInput">
+  <input type="date" id="dateInput" class="sheet-input">
   <p class="field-label">Note (optional)</p>
-  <input type="text" id="noteInput" placeholder="What was it for?">
+  <input type="text" id="noteInput" class="sheet-input" placeholder="What was it for?">
   <button class="btn btn-gold btn-block" id="saveTxnBtn">Save transaction</button>
   <button class="btn btn-danger btn-block" id="deleteTxnBtn" style="display:none;">Delete transaction</button>
 </div>
@@ -565,6 +574,10 @@
   "use strict";
 
   var STORAGE_KEY = "ledger_data_v1";
+  // Saved data that can't be read is copied under this prefix (plus a timestamp) instead of being overwritten
+  var SET_ASIDE_KEY_PREFIX = "ledger_set_aside_";
+  var MAX_CURRENCY_LENGTH = 4;
+  var MAX_GOAL_HISTORY = 24;
   var CATEGORY_COLORS = ["#E3BB63","#6FA08F","#CB5F35","#8C7FB0","#5B8FA8","#C97B8B","#A3A15C","#D4876A"];
 
   var DEFAULT_STATE = {
@@ -575,10 +588,13 @@
     },
     transactions: [],
     goal: null,
-    goalHistory: []
+    goalHistory: [],
+    // Month/week summaries shown on Overview until the user dismisses them
+    goalNotices: { month: null, week: null }
   };
 
-  var state = loadData();
+  var loaded = loadData();
+  var state = loaded.state;
   var currentType = "expense";
   var currentFilter = "all";
   var currentPeriod = "month";
@@ -587,37 +603,41 @@
   var donutChart = null;
   var barChart = null;
 
-  function normalizeState(parsed){
-    if (typeof parsed.currency !== "string" || !parsed.currency) parsed.currency = DEFAULT_STATE.currency;
-    if (!parsed.categories || typeof parsed.categories !== "object"){
-      parsed.categories = JSON.parse(JSON.stringify(DEFAULT_STATE.categories));
+  // Returns {state, problem}. Never throws, and never discards saved data it can't read:
+  // unreadable data is copied aside so it can still be recovered.
+  function loadData(){
+    var result = { state: clone(DEFAULT_STATE), problem: null };
+    var raw;
+    try{ raw = localStorage.getItem(STORAGE_KEY); }
+    catch(e){ return result; /* storage unavailable in this context - fall back to defaults */ }
+    if (!raw) return result;
+
+    var parsed = null;
+    try{ parsed = JSON.parse(raw); }catch(e){}
+    var clean = sanitizeState(parsed);
+    var keptCopy = true;
+    if (!clean){
+      keptCopy = setAside(raw);
+      result.problem = "Your saved data couldn't be read, so Ledger started fresh. A copy was kept on this device.";
     } else {
-      if (!Array.isArray(parsed.categories.expense) || parsed.categories.expense.length === 0){
-        parsed.categories.expense = JSON.parse(JSON.stringify(DEFAULT_STATE.categories.expense));
+      if (clean.skipped.length){
+        keptCopy = setAside(JSON.stringify(clean.skipped));
+        result.problem = plural(clean.skipped.length, "damaged transaction") + " couldn't be read and " +
+          (clean.skipped.length === 1 ? "was" : "were") + " set aside.";
       }
-      if (!Array.isArray(parsed.categories.income) || parsed.categories.income.length === 0){
-        parsed.categories.income = JSON.parse(JSON.stringify(DEFAULT_STATE.categories.income));
-      }
+      result.state = clean.state;
     }
-    if (!Array.isArray(parsed.transactions)) parsed.transactions = [];
-    if (parsed.goal === undefined) parsed.goal = null;
-    if (!Array.isArray(parsed.goalHistory)) parsed.goalHistory = [];
-    return parsed;
+    // Replace what's stored only once anything unreadable has a safe copy
+    // (this also stops the same problem being reported on every launch)
+    if (keptCopy){
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(result.state)); }catch(e){}
+    }
+    return result;
   }
 
-  function loadData(){
-    try{
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw){
-        var parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.transactions)){
-          var normalized = normalizeState(parsed);
-          try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)); }catch(e2){}
-          return normalized;
-        }
-      }
-    }catch(e){ /* storage unavailable in this context - fall back to defaults */ }
-    return JSON.parse(JSON.stringify(DEFAULT_STATE));
+  function setAside(text){
+    try{ localStorage.setItem(SET_ASIDE_KEY_PREFIX + Date.now(), text); return true; }
+    catch(e){ return false; }
   }
 
   function saveData(){
@@ -625,6 +645,138 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }catch(e){ /* silently ignore - e.g. private mode or sandboxed preview */ }
   }
+
+  // ---------- Cleaning saved data and backups ----------
+  // Everything read from storage or from a backup file goes through sanitizeState(),
+  // so the rest of the app can trust the shape of `state`.
+
+  // Returns {state, skipped}, or null when the input isn't Ledger data at all.
+  // `skipped` holds the original transactions that were too damaged to keep.
+  function sanitizeState(raw){
+    if (!isObj(raw) || !Array.isArray(raw.transactions)) return null;
+    var categories = isObj(raw.categories) ? raw.categories : {};
+    var usedIds = Object.create(null);
+    var transactions = [];
+    var skipped = [];
+    raw.transactions.forEach(function(t){
+      var clean = cleanTransaction(t, usedIds);
+      if (clean) transactions.push(clean);
+      else skipped.push(t);
+    });
+    var goal = cleanGoal(raw.goal);
+    return {
+      state: {
+        currency: cleanCurrency(raw.currency),
+        categories: {
+          expense: cleanCategoryList(categories.expense, DEFAULT_STATE.categories.expense),
+          income: cleanCategoryList(categories.income, DEFAULT_STATE.categories.income)
+        },
+        transactions: transactions,
+        goal: goal,
+        goalHistory: cleanGoalHistory(raw.goalHistory),
+        goalNotices: goal ? cleanGoalNotices(raw.goalNotices) : clone(DEFAULT_STATE.goalNotices)
+      },
+      skipped: skipped
+    };
+  }
+
+  // A transaction is kept only if its type, amount and date can be trusted; the rest is repaired.
+  function cleanTransaction(t, usedIds){
+    if (!isObj(t)) return null;
+    var type = (t.type === "income" || t.type === "expense") ? t.type : null;
+    var amount = cleanAmount(t.amount);
+    if (!type || amount === null || !isValidDateStr(t.date)) return null;
+    var category = typeof t.category === "string" ? t.category.trim() : "";
+    var id = (typeof t.id === "string" && /^[\w-]{1,64}$/.test(t.id) && !usedIds[t.id]) ? t.id : makeId();
+    usedIds[id] = true;
+    return {
+      id: id,
+      type: type,
+      amount: amount,
+      category: category || "Other",
+      note: typeof t.note === "string" ? t.note : "",
+      date: t.date,
+      createdAt: isNum(t.createdAt) ? t.createdAt : new Date(t.date + "T00:00:00").getTime()
+    };
+  }
+
+  // Positive amounts only; plain numeric text such as "20.5" (from hand-edited files) is accepted too
+  function cleanAmount(value){
+    var n = isNum(value) ? value
+      : (typeof value === "string" && /^\s*\d+(\.\d+)?\s*$/.test(value)) ? parseFloat(value) : NaN;
+    if (!isFinite(n)) return null;
+    n = Math.round(n * 100) / 100;
+    return n > 0 ? n : null;
+  }
+
+  // The currency is shown inside HTML all over the app, so markup characters are stripped
+  function cleanCurrency(value){
+    var s = typeof value === "string" ? value.replace(/[<>&"'`]/g, "").trim().slice(0, MAX_CURRENCY_LENGTH).trim() : "";
+    return s || DEFAULT_STATE.currency;
+  }
+
+  function cleanCategoryList(list, fallback){
+    var out = [];
+    if (Array.isArray(list)){
+      list.forEach(function(c){
+        var name = typeof c === "string" ? c.trim() : "";
+        if (name && out.indexOf(name) === -1) out.push(name);
+      });
+    }
+    return out.length ? out : fallback.slice();
+  }
+
+  function cleanGoal(g){
+    if (!isObj(g) || !isNum(g.monthlyIncome) || g.monthlyIncome < 0 ||
+        !isNum(g.monthlySavings) || g.monthlySavings <= 0 || !isValidMonthKey(g.monthKey)) return null;
+    var weekOk = isValidDateStr(g.weekStart);
+    return {
+      monthlyIncome: g.monthlyIncome,
+      monthlySavings: g.monthlySavings,
+      monthKey: g.monthKey,
+      // A missing week or allowance is rebuilt by applyGoalRollover()
+      weekStart: weekOk ? g.weekStart : null,
+      weekAllowance: weekOk && isNum(g.weekAllowance) ? g.weekAllowance : null
+    };
+  }
+
+  // One entry per month, oldest first
+  function cleanGoalHistory(list){
+    var byMonth = {};
+    (Array.isArray(list) ? list : []).forEach(function(h){
+      if (isObj(h) && isValidMonthKey(h.monthKey) && isNum(h.income) && isNum(h.savingsTarget) && isNum(h.spent)){
+        byMonth[h.monthKey] = { monthKey: h.monthKey, income: h.income, savingsTarget: h.savingsTarget, spent: h.spent };
+      }
+    });
+    return Object.keys(byMonth).sort().slice(-MAX_GOAL_HISTORY).map(function(k){ return byMonth[k]; });
+  }
+
+  function cleanGoalNotices(n){
+    var out = clone(DEFAULT_STATE.goalNotices);
+    if (!isObj(n)) return out;
+    var m = n.month;
+    if (isObj(m) && Array.isArray(m.closed) && m.closed.length > 0 && isValidMonthKey(m.newMonthKey) &&
+        (m.incomeUpdatedTo === null || isNum(m.incomeUpdatedTo)) &&
+        m.closed.every(function(c){
+          return isObj(c) && isValidMonthKey(c.monthKey) && typeof c.logged === "boolean" && isNum(c.spent) && isNum(c.budget);
+        })){
+      out.month = {
+        closed: m.closed.map(function(c){ return { monthKey: c.monthKey, logged: c.logged, spent: c.spent, budget: c.budget }; }),
+        newMonthKey: m.newMonthKey,
+        incomeUpdatedTo: m.incomeUpdatedTo
+      };
+    }
+    var w = n.week;
+    if (isObj(w) && isNum(w.spent) && isNum(w.allowance) && (w.newAllowance === null || isNum(w.newAllowance))){
+      out.week = { spent: w.spent, allowance: w.allowance, newAllowance: w.newAllowance };
+    }
+    return out;
+  }
+
+  function clone(obj){ return JSON.parse(JSON.stringify(obj)); }
+  function isNum(x){ return typeof x === "number" && isFinite(x); }
+  function isObj(x){ return !!x && typeof x === "object" && !Array.isArray(x); }
+  function plural(n, word){ return n + " " + word + (n === 1 ? "" : "s"); }
 
   function makeId(){
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -655,19 +807,30 @@
     return d.toLocaleDateString(undefined, {month:"long", year:"numeric"});
   }
   function pad2(n){ return String(n).padStart(2,"0"); }
-  function todayStr(){
-    var d = new Date();
-    return d.getFullYear() + "-" + pad2(d.getMonth()+1) + "-" + pad2(d.getDate());
+  function toDateStr(d){ return d.getFullYear() + "-" + pad2(d.getMonth()+1) + "-" + pad2(d.getDate()); }
+  function todayStr(){ return toDateStr(new Date()); }
+  // Rejects impossible dates such as 2026-02-30
+  function isValidDateStr(s){
+    if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    var p = s.split("-");
+    return toDateStr(new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10))) === s;
+  }
+  function isValidMonthKey(s){ return typeof s === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(s); }
+  // Moves a "YYYY-MM" key by whole months. Always works from the 1st, so the 31st can't spill into the next month.
+  function shiftMonthKey(key, delta){
+    var parts = key.split("-");
+    var d = new Date(parseInt(parts[0],10), parseInt(parts[1],10)-1 + delta, 1);
+    return d.getFullYear() + "-" + pad2(d.getMonth()+1);
   }
 
   var toastUndoFn = null;
-  function showToast(msg, undoFn){
+  function showToast(msg, undoFn, durationMs){
     var t = document.getElementById("toast");
     toastUndoFn = undoFn || null;
     t.innerHTML = escapeHtml(msg) + (undoFn ? ' <button type="button" class="toast-undo-btn">Undo</button>' : '');
     t.classList.add("show");
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(function(){ t.classList.remove("show"); toastUndoFn = null; }, undoFn ? 5000 : 2200);
+    showToast._t = setTimeout(function(){ t.classList.remove("show"); toastUndoFn = null; }, durationMs || (undoFn ? 5000 : 2200));
   }
   document.getElementById("toast").addEventListener("click", function(e){
     if (e.target.classList.contains("toast-undo-btn") && toastUndoFn){
@@ -732,11 +895,7 @@
   }
 
   function currentMonthKey(){ return todayStr().slice(0,7); }
-  function lastMonthKey(){
-    var d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    return d.getFullYear() + "-" + pad2(d.getMonth()+1);
-  }
+  function lastMonthKey(){ return shiftMonthKey(currentMonthKey(), -1); }
   function txnsInMonthUpToDay(key, day){
     return state.transactions.filter(function(t){
       if (monthKey(t.date) !== key) return false;
@@ -752,14 +911,14 @@
   function addDaysToDateStr(dateStr, days){
     var d = new Date(dateStr + "T00:00:00");
     d.setDate(d.getDate() + days);
-    return d.getFullYear() + "-" + pad2(d.getMonth()+1) + "-" + pad2(d.getDate());
+    return toDateStr(d);
   }
   function startOfWeek(dateStr){
     var d = new Date(dateStr + "T00:00:00");
     var day = d.getDay();
     var diff = (day === 0 ? -6 : 1 - day);
     d.setDate(d.getDate() + diff);
-    return d.getFullYear() + "-" + pad2(d.getMonth()+1) + "-" + pad2(d.getDate());
+    return toDateStr(d);
   }
   function thisWeekKey(){ return startOfWeek(todayStr()); }
   function txnsInWeek(weekStartStr){
@@ -807,59 +966,132 @@
     if (weeks <= 0) return null;
     return remainingBudget / weeks;
   }
-  function checkGoalTransitions(){
-    if (!state.goal) return null;
-    var message = null;
+  // Closes every month (and week) that ended since the goal was last updated, and records
+  // a summary in state.goalNotices that stays on Overview until the user dismisses it.
+  // It only changes state - the caller saves and redraws. Returns true if anything changed.
+  function applyGoalRollover(){
+    var goal = state.goal;
+    if (!goal) return false;
+    var nowMonth = currentMonthKey();
+    var nowWeek = thisWeekKey();
 
-    if (state.goal.monthKey !== currentMonthKey()){
-      var oldLabel = monthLabel(state.goal.monthKey);
-      var lastSpent = goalSpentInMonth(state.goal.monthKey);
-      var lastBudget = goalMonthlyBudget();
-      var mdiff = lastBudget - lastSpent;
-      message = mdiff >= 0
-        ? "In " + oldLabel + ", you spent " + formatMoney(lastSpent) + " of your " + formatMoney(lastBudget) + " budget - " + formatMoney(mdiff) + " left over. Starting fresh for " + monthLabel(currentMonthKey()) + "."
-        : "In " + oldLabel + ", you spent " + formatMoney(lastSpent) + ", " + formatMoney(Math.abs(mdiff)) + " over your " + formatMoney(lastBudget) + " budget. Starting fresh for " + monthLabel(currentMonthKey()) + ".";
-
-      var actualIncome = actualIncomeInMonth(state.goal.monthKey);
-      if (!state.goalHistory) state.goalHistory = [];
-      state.goalHistory.push({
-        monthKey: state.goal.monthKey,
-        income: actualIncome > 0 ? actualIncome : state.goal.monthlyIncome,
-        savingsTarget: state.goal.monthlySavings,
-        spent: lastSpent
-      });
-      if (state.goalHistory.length > 24) state.goalHistory = state.goalHistory.slice(-24);
-
-      if (actualIncome > 0 && Math.abs(actualIncome - state.goal.monthlyIncome) > 0.01){
-        message += " Income updated to " + formatMoney(actualIncome) + " based on what you logged.";
-        state.goal.monthlyIncome = actualIncome;
-      }
-
-      state.goal.monthKey = currentMonthKey();
-      state.goal.weekStart = thisWeekKey();
-      state.goal.weekAllowance = goalWeeklyAllowance();
-      saveData();
-      return message;
+    if (goal.monthKey > nowMonth){
+      // The device clock went backwards (or the backup came from a device set later): restart this month
+      goal.monthKey = nowMonth;
+      goal.weekStart = nowWeek;
+      goal.weekAllowance = goalWeeklyAllowance();
+      return true;
     }
 
-    var current = thisWeekKey();
-    var guard = 0;
-    while (state.goal.weekStart !== current && guard < 6){
-      var stats = weekStats(state.goal.weekStart);
-      var oldAllowance = state.goal.weekAllowance;
-      state.goal.weekStart = addDaysToDateStr(state.goal.weekStart, 7);
-      state.goal.weekAllowance = goalWeeklyAllowance();
-      if (oldAllowance !== null && oldAllowance !== undefined){
-        var wdiff = oldAllowance - stats.expense;
-        var newText = state.goal.weekAllowance !== null ? formatMoney(state.goal.weekAllowance) : "not available";
-        message = wdiff >= 0
-          ? "You spent " + formatMoney(stats.expense) + " last week, " + formatMoney(wdiff) + " under your allowance. This week's allowance: " + newText + "."
-          : "You spent " + formatMoney(stats.expense) + " last week, " + formatMoney(Math.abs(wdiff)) + " over your allowance. This week's allowance is now " + newText + ".";
+    if (goal.monthKey < nowMonth){
+      var startIncome = goal.monthlyIncome;
+      var closed = [];
+      // History only keeps MAX_GOAL_HISTORY months, so there's no point going back further
+      var oldestUseful = shiftMonthKey(nowMonth, -MAX_GOAL_HISTORY);
+      var first = goal.monthKey < oldestUseful ? oldestUseful : goal.monthKey;
+      // Months being closed now are rebuilt from scratch, so they can never be listed twice
+      state.goalHistory = state.goalHistory.filter(function(h){ return h.monthKey < first || h.monthKey >= nowMonth; });
+
+      for (var m = first; m < nowMonth; m = shiftMonthKey(m, 1)){
+        var budget = goalMonthlyBudget();
+        if (txnsInMonth(m).length === 0){
+          // Nothing was logged, so there's no real result to put in the savings history
+          closed.push({ monthKey: m, logged: false, spent: 0, budget: budget });
+          continue;
+        }
+        var spent = goalSpentInMonth(m);
+        var actualIncome = actualIncomeInMonth(m);
+        state.goalHistory.push({
+          monthKey: m,
+          income: actualIncome > 0 ? actualIncome : goal.monthlyIncome,
+          savingsTarget: goal.monthlySavings,
+          spent: spent
+        });
+        closed.push({ monthKey: m, logged: true, spent: spent, budget: budget });
+        // Next month's expected income follows what was actually earned
+        if (actualIncome > 0) goal.monthlyIncome = actualIncome;
       }
-      guard++;
+
+      state.goalHistory.sort(function(a,b){ return a.monthKey < b.monthKey ? -1 : 1; });
+      if (state.goalHistory.length > MAX_GOAL_HISTORY) state.goalHistory = state.goalHistory.slice(-MAX_GOAL_HISTORY);
+      state.goalNotices.month = {
+        closed: closed,
+        newMonthKey: nowMonth,
+        incomeUpdatedTo: Math.abs(goal.monthlyIncome - startIncome) > 0.01 ? goal.monthlyIncome : null
+      };
+      // A week summary from the old month no longer applies
+      state.goalNotices.week = null;
+      goal.monthKey = nowMonth;
+      goal.weekStart = nowWeek;
+      goal.weekAllowance = goalWeeklyAllowance();
+      return true;
     }
-    if (message) saveData();
-    return message;
+
+    if (!goal.weekStart || goal.weekStart > nowWeek){
+      goal.weekStart = nowWeek;
+      goal.weekAllowance = goalWeeklyAllowance();
+      return true;
+    }
+
+    if (goal.weekStart < nowWeek){
+      var lastWeek = addDaysToDateStr(nowWeek, -7);
+      // Only compare against the allowance if it was really last week's allowance
+      var summary = (goal.weekStart === lastWeek && isNum(goal.weekAllowance))
+        ? { spent: weekStats(lastWeek).expense, allowance: goal.weekAllowance, newAllowance: null }
+        : null;
+      goal.weekStart = nowWeek;
+      goal.weekAllowance = goalWeeklyAllowance();
+      if (summary) summary.newAllowance = goal.weekAllowance;
+      state.goalNotices.week = summary;
+      return true;
+    }
+
+    if (goal.weekAllowance === null){
+      goal.weekAllowance = goalWeeklyAllowance();
+      return true;
+    }
+    return false;
+  }
+
+  // Notice text is built when drawing (not when stored), so it always uses the current currency
+  function closedMonthSentence(c){
+    var label = monthLabel(c.monthKey);
+    if (!c.logged) return "Nothing was logged in " + label + ".";
+    var diff = c.budget - c.spent;
+    return diff >= 0
+      ? "In " + label + ", you spent " + formatMoney(c.spent) + " of your " + formatMoney(c.budget) + " budget - " + formatMoney(diff) + " left over."
+      : "In " + label + ", you spent " + formatMoney(c.spent) + ", " + formatMoney(Math.abs(diff)) + " over your " + formatMoney(c.budget) + " budget.";
+  }
+  function closedMonthLine(c){
+    var label = monthLabel(c.monthKey);
+    if (!c.logged) return label + ": nothing logged";
+    var diff = c.budget - c.spent;
+    return label + ": spent " + formatMoney(c.spent) + " of " + formatMoney(c.budget) +
+      " (" + formatMoney(Math.abs(diff)) + (diff >= 0 ? " left over)" : " over)");
+  }
+  function goalMonthNoticeHtml(n){
+    var ending = "Starting fresh for " + monthLabel(n.newMonthKey) + "." +
+      (n.incomeUpdatedTo !== null ? " Income updated to " + formatMoney(n.incomeUpdatedTo) + " based on what you logged." : "");
+    if (n.closed.length === 1) return escapeHtml(closedMonthSentence(n.closed[0]) + " " + ending);
+    // Long absences show only the most recent months
+    var shown = n.closed.length > 4 ? n.closed.slice(-3) : n.closed;
+    var hidden = n.closed.length - shown.length;
+    return escapeHtml("Here's how the last " + n.closed.length + " months went:") +
+      '<ul class="goal-banner-list">' +
+        (hidden ? '<li>' + escapeHtml(plural(hidden, "earlier month") + " not shown") + '</li>' : '') +
+        shown.map(function(c){ return '<li>' + escapeHtml(closedMonthLine(c)) + '</li>'; }).join("") +
+      '</ul>' + escapeHtml(ending);
+  }
+  function goalWeekNoticeText(n){
+    var diff = n.allowance - n.spent;
+    var newText = n.newAllowance !== null ? formatMoney(n.newAllowance) : "not available";
+    return diff >= 0
+      ? "You spent " + formatMoney(n.spent) + " last week, " + formatMoney(diff) + " under your allowance. This week's allowance: " + newText + "."
+      : "You spent " + formatMoney(n.spent) + " last week, " + formatMoney(Math.abs(diff)) + " over your allowance. This week's allowance is now " + newText + ".";
+  }
+  function goalBannerHtml(kind, innerHtml){
+    return '<div class="goal-banner"><div>' + innerHtml + '</div>' +
+      '<button type="button" data-dismiss="' + kind + '" aria-label="Dismiss">&times;</button></div>';
   }
 
   function monthProjection(){
@@ -965,13 +1197,17 @@
     sectionHead.style.display = "";
     card.style.display = "";
 
-    var transitionMsg = checkGoalTransitions();
-    if (transitionMsg){
-      bannerWrap.innerHTML = '<div class="goal-banner"><span>' + transitionMsg + '</span><button type="button" id="goalBannerDismiss" aria-label="Dismiss">&times;</button></div>';
-      document.getElementById("goalBannerDismiss").addEventListener("click", function(){ bannerWrap.innerHTML = ""; });
-    } else {
-      bannerWrap.innerHTML = "";
-    }
+    var notices = state.goalNotices;
+    bannerWrap.innerHTML =
+      (notices.month ? goalBannerHtml("month", goalMonthNoticeHtml(notices.month)) : "") +
+      (notices.week ? goalBannerHtml("week", escapeHtml(goalWeekNoticeText(notices.week))) : "");
+    bannerWrap.querySelectorAll("[data-dismiss]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        state.goalNotices[btn.dataset.dismiss] = null;
+        saveData();
+        renderGoalOverview();
+      });
+    });
 
     var monthlyBudget = goalMonthlyBudget();
     var spent = goalSpentInMonth(state.goal.monthKey);
@@ -1171,7 +1407,7 @@
   // ---------- Settings ----------
   var currencyInput = document.getElementById("currencyInput");
   currencyInput.addEventListener("change", function(){
-    state.currency = currencyInput.value.trim() || "$";
+    state.currency = cleanCurrency(currencyInput.value);
     currencyInput.value = state.currency;
     saveData();
     renderAll();
@@ -1332,6 +1568,7 @@
       document.getElementById("goalRemoveBtn").addEventListener("click", function(){
         if (confirm("Remove your savings goal? Your transactions won't be affected.")){
           state.goal = null;
+          state.goalNotices = clone(DEFAULT_STATE.goalNotices);
           saveData();
           renderGoalSettings();
           renderGoalOverview();
@@ -1402,18 +1639,42 @@
     if (!file) return;
     var reader = new FileReader();
     reader.onload = function(ev){
+      var parsed;
+      try{ parsed = JSON.parse(ev.target.result); }
+      catch(err){ showToast("Couldn't read that file"); return; }
+
+      var result = sanitizeState(parsed);
+      if (!result){ showToast("That file isn't a Ledger backup"); return; }
+      var incoming = result.state.transactions.length;
+      var skipped = result.skipped.length;
+      if (incoming === 0 && skipped > 0){ showToast("None of the transactions in that file could be read"); return; }
+
+      var question = "Replace all data on this device (" + plural(state.transactions.length, "transaction") +
+        ", plus your categories and settings) with this backup (" + plural(incoming, "transaction") + ")?";
+      if (skipped) question += "\n\n" + plural(skipped, "damaged transaction") + " in the file will be skipped.";
+      if (!confirm(question)) return;
+
+      var previous = state;
+      state = result.state;
+      applyGoalRollover(); // the backup's goal may be from an earlier month
       try{
-        var parsed = JSON.parse(ev.target.result);
-        if (parsed && Array.isArray(parsed.transactions)){
-          state = normalizeState(parsed);
-          saveData();
-          renderAll();
-          showToast("Backup restored");
-        } else {
-          showToast("That file isn't a Ledger backup");
-        }
-      }catch(err){ showToast("Couldn't read that file"); }
+        renderAll();
+      }catch(err){
+        // Nothing has been saved yet, so switching back is enough
+        state = previous;
+        renderAll();
+        showToast("Couldn't load that backup. Nothing was changed.");
+        return;
+      }
+      saveData();
+      showToast("Backup restored", function(){
+        state = previous;
+        saveData();
+        renderAll();
+        showToast("Previous data restored");
+      });
     };
+    reader.onerror = function(){ showToast("Couldn't read that file"); };
     reader.readAsText(file);
     e.target.value = "";
   });
@@ -1462,16 +1723,34 @@
     renderCatPicker(preselectCategory);
   }
   document.querySelectorAll(".type-toggle button").forEach(function(b){
-    b.addEventListener("click", function(){ setType(b.dataset.type); });
+    b.addEventListener("click", function(){
+      // Switching back to the edited transaction's own type brings its category back too
+      var original = editingTxn();
+      setType(b.dataset.type, original && original.type === b.dataset.type ? original.category : null);
+    });
   });
+
+  function editingTxn(){
+    if (!editingId) return null;
+    return state.transactions.find(function(t){ return t.id === editingId; }) || null;
+  }
 
   var selectedCategory = null;
   function renderCatPicker(preselectCategory){
-    var list = state.categories[currentType];
+    var list = state.categories[currentType].slice();
+    // A transaction keeps its category even after that category is removed in Settings,
+    // so editing something else (like the note) never changes it behind the user's back
+    var original = editingTxn();
+    var removedCategory = (original && original.type === currentType && list.indexOf(original.category) === -1)
+      ? original.category : null;
+    if (removedCategory) list.push(removedCategory);
     selectedCategory = (preselectCategory && list.indexOf(preselectCategory) !== -1) ? preselectCategory : (list[0] || null);
     var wrap = document.getElementById("catPicker");
     wrap.innerHTML = list.map(function(c){
-      return '<button type="button" class="cat-pill'+(c === selectedCategory ? " active" : "")+'" data-cat="'+escapeHtml(c)+'">'+escapeHtml(c)+'</button>';
+      var removed = c === removedCategory;
+      return '<button type="button" class="cat-pill' + (removed ? " removed" : "") + (c === selectedCategory ? " active" : "") +
+        '" data-cat="' + escapeHtml(c) + '"' + (removed ? ' title="No longer in your category list"' : '') + '>' +
+        escapeHtml(c) + (removed ? '<span class="cat-pill-note">removed</span>' : '') + '</button>';
     }).join("");
     wrap.querySelectorAll(".cat-pill").forEach(function(btn){
       btn.addEventListener("click", function(){
@@ -1582,9 +1861,24 @@
     renderSettings();
   }
 
+  // The app can stay open (or sit in the background on a phone) across midnight.
+  // When the date changes, close any finished month/week and redraw with the new "today".
+  var lastSeenDay = todayStr();
+  function refreshIfNewDay(){
+    if (todayStr() === lastSeenDay) return;
+    lastSeenDay = todayStr();
+    if (applyGoalRollover()) saveData();
+    renderAll();
+  }
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden) refreshIfNewDay(); });
+  window.addEventListener("focus", refreshIfNewDay);
+  setInterval(refreshIfNewDay, 60 * 1000);
+
+  if (applyGoalRollover()) saveData();
   renderCatPicker();
   renderAll();
   handleQuickAdd();
+  if (loaded.problem) showToast(loaded.problem, null, 6000);
 })();
 </script>
 </body>
