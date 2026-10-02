@@ -2,33 +2,35 @@
 //
 // - The app page is loaded network-first, so every update pushed to GitHub shows up on the
 //   next launch. The last good copy is used when offline (or when the network is very slow).
-// - The manifest and icons come from the cache and refresh in the background.
-// - Chart.js and Google Fonts are cached the first time they load.
+// - The app's other files (styles, scripts, icons) follow their page: a page that came from the
+//   network gets fresh files, a page that came from the saved copy gets saved files. So one launch
+//   never mixes old and new versions.
+// - Every app file is saved as it's loaded; the page also sends the list of files it used, so
+//   they're all available offline from the first visit. Google Fonts are cached on first use.
 //
-// Bump CACHE_VERSION whenever APP_FILES changes.
+// Bump CACHE_VERSION when the way files are cached changes (old caches are then deleted).
+// A new version of this file takes over as soon as the old one is idle: right away, or within
+// about 30 seconds while the app is open (Chrome waits for its next idle check after network
+// requests), and at the latest on the next launch. The app's own files are always fresh anyway.
 "use strict";
 
-var CACHE_VERSION = "v1";
+var CACHE_VERSION = "v2";
 var CACHE = "ledger-" + CACHE_VERSION;
 var APP_PAGE = new URL("./", self.registration.scope).href;
-var APP_FILES = ["./", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
-// Same URL as the <script> tag in index.html. If they ever differ, Chart.js is still cached on first use.
-var CHART_JS = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js";
-var CACHE_FIRST_HOSTS = ["cdnjs.cloudflare.com", "fonts.gstatic.com"]; // versioned files that never change
-var REFRESH_HOSTS = ["fonts.googleapis.com"];                          // small files that can change
-var NETWORK_TIMEOUT_MS = 4000;
+var APP_FILES = ["./", "styles.css", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
+var CACHE_FIRST_HOSTS = ["fonts.gstatic.com"];  // versioned files that never change
+var REFRESH_HOSTS = ["fonts.googleapis.com"];    // small files that can change
+var PAGE_TIMEOUT_MS = 4000;                      // then the saved copy is shown
+var FILE_TIMEOUT_MS = 8000;                      // for the files of a page that came from the network
+
+// Pages (by client id) that were shown from the saved copy, so their files come from it too
+var pagesFromCache = new Set();
 
 self.addEventListener("install", function(event){
   event.waitUntil(
     caches.open(CACHE).then(function(cache){
       // cache: "reload" skips the browser's HTTP cache, so a new version never stores stale files
-      return cache.addAll(APP_FILES.map(function(url){ return new Request(url, { cache: "reload" }); }))
-        .then(function(){
-          // Optional: the app still works (without charts) if this fails
-          return fetch(corsRequest(CHART_JS)).then(function(response){
-            if (response.ok) return cache.put(CHART_JS, response);
-          }).catch(function(){});
-        });
+      return cache.addAll(APP_FILES.map(function(url){ return new Request(url, { cache: "reload" }); }));
     }).then(function(){ return self.skipWaiting(); })
   );
 });
@@ -42,6 +44,21 @@ self.addEventListener("activate", function(event){
   );
 });
 
+// The page sends the app files it loaded, so they're kept for offline use
+self.addEventListener("message", function(event){
+  var data = event.data;
+  if (!data || data.type !== "keep-files" || !Array.isArray(data.urls)) return;
+  var urls = data.urls.filter(function(url){ return typeof url === "string" && url.indexOf(self.registration.scope) === 0; });
+  event.waitUntil(caches.open(CACHE).then(function(cache){
+    return Promise.all(urls.map(function(url){
+      return cache.match(url).then(function(found){
+        if (found) return;
+        return fetch(url).then(function(response){ if (response.ok) return cache.put(url, response); }).catch(function(){});
+      });
+    }));
+  }));
+});
+
 self.addEventListener("fetch", function(event){
   var request = event.request;
   if (request.method !== "GET") return;
@@ -52,7 +69,7 @@ self.addEventListener("fetch", function(event){
     return;
   }
   if (url.origin === self.location.origin){
-    if (url.href.indexOf(self.registration.scope) === 0) serveStaleWhileRevalidate(event, fetchSameOrigin);
+    if (url.href.indexOf(self.registration.scope) === 0) serveAppFile(event);
     return;
   }
   if (CACHE_FIRST_HOSTS.indexOf(url.hostname) !== -1) serveCacheFirst(event, fetchCrossOrigin);
@@ -74,14 +91,54 @@ function serveAppPage(event){
     return caches.open(CACHE).then(function(cache){ return cache.put(APP_PAGE, copy); });
   }).catch(function(){}));
 
+  var clientId = event.resultingClientId;
   event.respondWith(caches.match(APP_PAGE, { ignoreVary: true }).then(function(cached){
     if (!cached) return network;
-    return Promise.race([network, wait(NETWORK_TIMEOUT_MS)]).then(function(response){
+    return Promise.race([network, wait(PAGE_TIMEOUT_MS)]).then(function(response){
       // Redirects are passed on; errors (or no answer in time) fall back to the saved copy
       if (response && (response.ok || response.type === "opaqueredirect")) return response;
-      return cached;
-    }, function(){ return cached; });
+      return usedSavedPage(clientId, cached);
+    }, function(){ return usedSavedPage(clientId, cached); });
   }));
+}
+
+function usedSavedPage(clientId, cached){
+  if (clientId){
+    pagesFromCache.add(clientId);
+    // The set only needs recent pages
+    if (pagesFromCache.size > 50) pagesFromCache.delete(pagesFromCache.values().next().value);
+  }
+  return cached;
+}
+
+// Styles, scripts, icons and the manifest: from the same source as the page that asked for them
+function serveAppFile(event){
+  var request = event.request;
+  if (pagesFromCache.has(event.clientId)){
+    event.respondWith(caches.match(request, { ignoreVary: true }).then(function(cached){
+      return cached || fetchAndKeep(request);
+    }));
+    return;
+  }
+  var network = fetchAndKeep(request);
+  event.waitUntil(network.catch(function(){}));
+  event.respondWith(Promise.race([network, wait(FILE_TIMEOUT_MS)]).then(function(response){
+    return response || savedOr(request, network);
+  }, function(){ return savedOr(request, network); }));
+}
+
+function fetchAndKeep(request){
+  return fetch(request).then(function(response){
+    if (!response.ok || response.type !== "basic") return response;
+    var copy = response.clone();
+    return caches.open(CACHE).then(function(cache){ return cache.put(request, copy); })
+      .then(function(){ return response; }, function(){ return response; });
+  });
+}
+
+// The saved copy if there is one, otherwise keep waiting for the network
+function savedOr(request, network){
+  return caches.match(request, { ignoreVary: true }).then(function(cached){ return cached || network; });
 }
 
 function serveStaleWhileRevalidate(event, fetcher){
@@ -109,12 +166,9 @@ function serveCacheFirst(event, fetcher){
   }));
 }
 
-function fetchSameOrigin(request){ return fetch(request); }
-
 // Cross-origin files are fetched with CORS so they can be cached as normal (not opaque) responses.
 // If a server doesn't allow CORS, the page's own request is used instead; its opaque answer isn't cached.
 function fetchCrossOrigin(request){
-  return fetch(corsRequest(request.url)).catch(function(){ return fetch(request); });
+  return fetch(new Request(request.url, { mode: "cors", credentials: "omit" })).catch(function(){ return fetch(request); });
 }
-function corsRequest(url){ return new Request(url, { mode: "cors", credentials: "omit" }); }
 function wait(ms){ return new Promise(function(resolve){ setTimeout(function(){ resolve(null); }, ms); }); }
