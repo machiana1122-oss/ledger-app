@@ -11,12 +11,13 @@ import { todayStr, monthLabel, monthName, shiftMonthKey, shortDate } from "../da
 import { html, setHtml } from "../html.js";
 import { plural } from "../util.js";
 import { $, money, confirmChange, switchTab, renderCurrent, monthRange, monthStartNote } from "./shell.js";
-import { colorForCategory } from "./colors.js";
+import { categoryColors } from "./colors.js";
 import { donutSvg } from "./donut.js";
 import { renderBackupReminder } from "./backup.js";
 import { openOccurrence } from "./sheet.js";
 
 let viewMonth = null;   // the month being looked at, or null for this month
+let pickedCategory = null; // the category picked in the spending chart, or null for the total
 
 export function renderOverview(state){
   const today = todayStr();
@@ -59,7 +60,7 @@ export function renderOverview(state){
 
   if (isThisMonth) renderGoal(state, today);
   else renderPastGoal(state, month);
-  renderSpending(months, month, isThisMonth);
+  renderSpending(state, months, month, isThisMonth);
 }
 
 // ---------- Recurring items that are due ----------
@@ -202,7 +203,9 @@ function finishedMonthLine(state, key){
 }
 
 // ---------- Spending by category ----------
-function renderSpending(months, month, isThisMonth){
+// Tapping a category (its part of the ring, or its row) shows its numbers in the middle of the
+// ring; tapping it again, or anywhere else in the chart, goes back to the total.
+function renderSpending(state, months, month, isThisMonth){
   const totals = categoryTotals(months.txns(month), "expense");
   const donut = $("donut");
   donut.hidden = totals.length === 0;
@@ -213,10 +216,35 @@ function renderSpending(months, month, isThisMonth){
       : html`<div class="empty"><strong>No spending</strong>Nothing was spent in ${monthLabel(month)}.</div>`);
     return;
   }
+  const colorOf = categoryColors(state);
   const sum = totals.reduce((s, t) => s + t.total, 0);
-  const items = totals.map(({ category, total }) => ({ category, total, pct: Math.round(total / sum * 100), color: colorForCategory(category) }));
-  setHtml(donut, donutSvg(items.map(i => ({ value: i.total, color: i.color, title: i.category + ": " + money(i.total) + " (" + i.pct + "%)" })), "Spending by category"));
-  setHtml($("catLegend"), items.map(i => html`<div class="cat-row"><span class="dot" style="background:${i.color}"></span><span class="name">${i.category}</span><span class="pct">${i.pct}%</span><span class="amt">${money(i.total)}</span></div>`));
+  const items = totals.map(({ category, total }) => ({ category, total, pct: Math.round(total / sum * 100), color: colorOf(category) }));
+  // A category that has no spending in this month can't stay picked
+  const picked = items.find(i => i.category === pickedCategory) || null;
+  if (!picked) pickedCategory = null;
+  const middle = picked
+    ? html`<span class="donut-center-label">${picked.category}</span><span class="donut-center-amount">${money(picked.total)}</span><span class="donut-center-sub">${picked.pct}% of spending</span>`
+    : html`<span class="donut-center-label">${isThisMonth ? "Spent so far" : "Spent"}</span><span class="donut-center-amount">${money(sum)}</span>`;
+  setHtml(donut, html`${donutSvg(items.map(i => ({ key: i.category, value: i.total, color: i.color, title: i.category + ": " + money(i.total) + " (" + i.pct + "%)" })), "Spending by category", pickedCategory)}<div class="donut-center" aria-live="polite">${middle}</div>`);
+  // Big amounts shrink to fit inside the ring
+  const amount = donut.querySelector(".donut-center-amount");
+  for (let size = 17; amount.clientWidth && amount.scrollWidth > amount.clientWidth && size > 11; size--) amount.style.fontSize = (size - 1) + "px";
+  setHtml($("catLegend"), items.map(i => {
+    const on = i.category === pickedCategory;
+    return html`<div class="cat-row${on ? " picked" : ""}" data-cat="${i.category}" role="button" tabindex="0" aria-pressed="${on ? "true" : "false"}"><span class="dot" style="background:${i.color}"></span><span class="name">${i.category}</span><span class="pct">${i.pct}%</span><span class="amt">${money(i.total)}</span></div>`;
+  }));
+}
+
+function pickCategory(category){
+  // Keyboard focus stays on the same row after redrawing
+  const focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".cat-row") : null;
+  const refocus = focused ? focused.dataset.cat : null;
+  pickedCategory = category;
+  renderCurrent();
+  if (refocus !== null){
+    const row = [...$("catLegend").querySelectorAll(".cat-row")].find(r => r.dataset.cat === refocus);
+    if (row) row.focus();
+  }
 }
 
 // Keeps the balance on one line by shrinking it as needed (long amounts, narrow phones).
@@ -271,6 +299,25 @@ export function initOverview(){
     else openOccurrence(rule, el.dataset.date);
   });
   $("dueAddAllBtn").addEventListener("click", addAllDue);
+
+  // A tap on a segment picks it (again: back to the total); anywhere else in the chart clears it
+  $("donut").addEventListener("click", e => {
+    const segment = e.target.closest(".donut-seg");
+    pickCategory(segment && segment.dataset.key !== pickedCategory ? segment.dataset.key : null);
+  });
+  const legend = $("catLegend");
+  const toggleRow = row => pickCategory(row.dataset.cat === pickedCategory ? null : row.dataset.cat);
+  legend.addEventListener("click", e => {
+    const row = e.target.closest(".cat-row");
+    if (row) toggleRow(row);
+  });
+  legend.addEventListener("keydown", e => {
+    const row = e.target.closest(".cat-row");
+    if (row && e.target === row && (e.key === "Enter" || e.key === " ")){
+      e.preventDefault();
+      toggleRow(row);
+    }
+  });
 
   window.addEventListener("resize", fitBalance);
   // The web fonts can arrive after the first draw and change the text width

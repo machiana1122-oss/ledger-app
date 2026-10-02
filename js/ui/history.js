@@ -6,7 +6,7 @@ import { monthsOf, monthStartedByIncome } from "../months.js";
 import { todayStr, monthLabel, monthName } from "../dates.js";
 import { html, setHtml } from "../html.js";
 import { $, money, renderCurrent, monthRange } from "./shell.js";
-import { colorForCategory } from "./colors.js";
+import { categoryColors } from "./colors.js";
 import { openSheet, deleteTransaction } from "./sheet.js";
 
 let filter = "all";   // "all" | "income" | "expense"
@@ -29,6 +29,7 @@ export function renderHistory(state){
 
   const months = monthsOf(state);
   const thisMonth = months.of(todayStr());
+  const colorOf = categoryColors(state);
   const groups = new Map();
   for (const t of txns){
     const key = months.of(t.date);
@@ -37,12 +38,11 @@ export function renderHistory(state){
   }
   setHtml(list, [...groups].map(([key, rows]) => {
     const range = monthRange(months, key, key === thisMonth);
-    return html`<div class="month-group"><div class="month-title">${monthLabel(key)}${range ? html`<span class="month-range">${range}</span>` : ""}</div>${rows.map(row)}</div>`;
+    return html`<div class="month-group"><div class="month-title">${monthLabel(key)}${range ? html`<span class="month-range">${range}</span>` : ""}</div>${rows.map(t => row(t, colorOf(t.category)))}</div>`;
   }));
 }
 
-function row(t){
-  const color = colorForCategory(t.category);
+function row(t, color){
   return html`<div class="txn-row" data-id="${t.id}" role="button" tabindex="0"><div class="txn-dot" style="background:${color}22; color:${color}">${t.category.charAt(0).toUpperCase()}</div><div class="txn-info"><div class="cat">${t.category}${t.recurringId ? html`<span class="repeat-mark" title="Recurring" aria-label="recurring"> ↻</span>` : ""}</div><div class="note">${t.note || t.date}${monthStartedByIncome(t) ? " · starts " + monthName(monthStartedByIncome(t)) : ""}</div></div><div class="txn-amt ${t.type}">${t.type === "income" ? "+" : "-"}${money(t.amount)}</div><button class="del-btn" aria-label="Delete" data-id="${t.id}">&times;</button></div>`;
 }
 

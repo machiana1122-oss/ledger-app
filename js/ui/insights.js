@@ -7,7 +7,7 @@ import { savingsHistory, lifetimeSaved } from "../goal.js";
 import { todayStr, shiftMonthKey, addDays, daysBetween, monthLabel } from "../dates.js";
 import { html, setHtml } from "../html.js";
 import { $, money, renderCurrent } from "./shell.js";
-import { colorForCategory } from "./colors.js";
+import { categoryColors } from "./colors.js";
 import { trendSvg } from "./trend.js";
 
 let period = "month";   // "month" | "last" | "all"
@@ -32,7 +32,8 @@ export function renderInsights(state){
     setHtml(list, html`<div class="empty"><strong>Nothing to show</strong>No expenses logged for this period yet.</div>`);
   } else {
     const max = totals[0].total;
-    setHtml(list, totals.map(({ category, total }) => html`<div class="bar-item"><div class="top"><span>${category}</span><span class="amt">${money(total)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(total / max * 100)}%; background:${colorForCategory(category)}"></div></div></div>`));
+    const colorOf = categoryColors(state);
+    setHtml(list, totals.map(({ category, total }) => html`<div class="bar-item"><div class="top"><span>${category}</span><span class="amt">${money(total)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(total / max * 100)}%; background:${colorOf(category)}"></div></div></div>`));
   }
 
   renderSavingsHistory(state);

@@ -120,10 +120,21 @@ button{cursor:pointer;}
   border-radius:16px;
   padding:16px;
 }
-.donut-wrap{display:flex; justify-content:center; margin:6px auto 8px;}
+.donut-wrap{position:relative; display:flex; justify-content:center; margin:6px auto 8px;}
 .donut{width:190px; height:190px; display:block;}
-.donut-seg{fill:none; transition:stroke-width .15s ease;}
-.donut-seg:hover{stroke-width:32;}
+.donut-seg{fill:none; cursor:pointer; transition:stroke-width .15s ease, opacity .15s ease;}
+/* Phones keep :hover after a tap, so only real mouse hover gets this */
+@media (hover:hover){ .donut-seg:hover{stroke-width:32;} }
+.donut-seg.picked{stroke-width:34;}
+.donut.has-pick .donut-seg:not(.picked){opacity:0.35;}
+/* The middle of the ring: the total, or the picked category's numbers */
+.donut-center{
+  position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
+  width:112px; text-align:center; pointer-events:none;
+}
+.donut-center-label{display:block; font-size:12px; color:var(--ink-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.donut-center-amount{display:block; font-family:var(--font-display); font-size:17px; font-weight:500; white-space:nowrap; margin:2px 0 1px;}
+.donut-center-sub{display:block; font-size:11px; color:var(--ink-faint);}
 .empty{
   text-align:center;
   padding:30px 16px;
@@ -138,9 +149,13 @@ button{cursor:pointer;}
   display:flex;
   align-items:center;
   gap:10px;
-  padding:9px 0;
+  padding:9px 8px;
+  margin:0 -8px;
   border-bottom:1px solid var(--border);
+  border-radius:10px;
+  cursor:pointer;
 }
+.cat-row.picked{background:rgba(242,237,225,0.07); border-bottom-color:transparent;}
 .cat-row:last-child{border-bottom:none;}
 .dot{width:9px; height:9px; border-radius:50%; flex-shrink:0;}
 .cat-row .name{flex:1; font-size:14px;}

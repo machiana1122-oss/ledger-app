@@ -5,7 +5,8 @@ monthly goal. It runs in the browser (and as an iPhone Home Screen app), keeps a
 device, and works offline.
 
 - **Overview** - your balance, money in / out / saved for the month (go back to any earlier month
-  with the arrows), what's safe to spend per day to reach your savings goal, and spending by category.
+  with the arrows), what's safe to spend per day to reach your savings goal, and spending by category
+  (tap a category in the chart or the list to see its amount and share; each category has its own colour).
 - **Recurring** - rent, salary, subscriptions: tick "Repeat every month" when adding one. When it's
   due, Overview asks you to add it (one tap, or change it first) or skip it. Nothing is logged by itself.
 - **Months start on payday** - paid at the end of the month? Tick "Counts for next month" on your
