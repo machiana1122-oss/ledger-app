@@ -1,9 +1,11 @@
-// History tab: every transaction, grouped by month, with a search box and type filter.
+// History tab: every transaction, grouped by month (Ledger's months, which can start early on
+// payday - see months.js), with a search box and type filter.
 
 import { getState } from "../store.js";
-import { monthKeyOf, monthLabel } from "../dates.js";
+import { monthsOf, monthStartedByIncome } from "../months.js";
+import { todayStr, monthLabel, monthName } from "../dates.js";
 import { html, setHtml } from "../html.js";
-import { $, money, renderCurrent } from "./shell.js";
+import { $, money, renderCurrent, monthRange } from "./shell.js";
 import { colorForCategory } from "./colors.js";
 import { openSheet, deleteTransaction } from "./sheet.js";
 
@@ -25,19 +27,23 @@ export function renderHistory(state){
     return;
   }
 
+  const months = monthsOf(state);
+  const thisMonth = months.of(todayStr());
   const groups = new Map();
   for (const t of txns){
-    const key = monthKeyOf(t.date);
+    const key = months.of(t.date);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(t);
   }
-  setHtml(list, [...groups].map(([key, rows]) =>
-    html`<div class="month-group"><div class="month-title">${monthLabel(key)}</div>${rows.map(row)}</div>`));
+  setHtml(list, [...groups].map(([key, rows]) => {
+    const range = monthRange(months, key, key === thisMonth);
+    return html`<div class="month-group"><div class="month-title">${monthLabel(key)}${range ? html`<span class="month-range">${range}</span>` : ""}</div>${rows.map(row)}</div>`;
+  }));
 }
 
 function row(t){
   const color = colorForCategory(t.category);
-  return html`<div class="txn-row" data-id="${t.id}" role="button" tabindex="0"><div class="txn-dot" style="background:${color}22; color:${color}">${t.category.charAt(0).toUpperCase()}</div><div class="txn-info"><div class="cat">${t.category}${t.recurringId ? html`<span class="repeat-mark" title="Recurring" aria-label="recurring"> ↻</span>` : ""}</div><div class="note">${t.note || t.date}</div></div><div class="txn-amt ${t.type}">${t.type === "income" ? "+" : "-"}${money(t.amount)}</div><button class="del-btn" aria-label="Delete" data-id="${t.id}">&times;</button></div>`;
+  return html`<div class="txn-row" data-id="${t.id}" role="button" tabindex="0"><div class="txn-dot" style="background:${color}22; color:${color}">${t.category.charAt(0).toUpperCase()}</div><div class="txn-info"><div class="cat">${t.category}${t.recurringId ? html`<span class="repeat-mark" title="Recurring" aria-label="recurring"> ↻</span>` : ""}</div><div class="note">${t.note || t.date}${monthStartedByIncome(t) ? " · starts " + monthName(monthStartedByIncome(t)) : ""}</div></div><div class="txn-amt ${t.type}">${t.type === "income" ? "+" : "-"}${money(t.amount)}</div><button class="del-btn" aria-label="Delete" data-id="${t.id}">&times;</button></div>`;
 }
 
 function openRow(rowEl){

@@ -8,11 +8,13 @@
 //      so only facts are stored: transactions, settings and what the goal was each month
 //   3  adds the starting balance and recurring transactions; the weekly allowance is replaced by
 //      "safe to spend per day", so the goal no longer tracks weeks
+//   4  incomes (and recurring incomes) can be marked "counts for next month" (`startsNextMonth`):
+//      such an income starts the next month on the day it arrives (see months.js)
 
 import { isValidDateStr, isValidMonthKey } from "./dates.js";
 import { clone, isObj, makeId } from "./util.js";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const MAX_GOAL_HISTORY = 24;
 const MAX_CURRENCY_LENGTH = 4;
 const ID_PATTERN = /^[\w-]{1,64}$/;
@@ -27,12 +29,14 @@ const DEFAULT_STATE = {
     income: ["Salary", "Gift", "Freelance", "Other"]
   },
   // { id, type: "income"|"expense", amount (cents), category, note, date "YYYY-MM-DD", createdAt (ms),
-  //   recurringId (only if it came from a recurring item) }
+  //   recurringId (only if it came from a recurring item),
+  //   startsNextMonth: true (only on an income that counts for next month) }
   transactions: [],
   // Recurring items: { id, type, amount (cents), category, note, frequency: "monthly", day (1-31),
-  //   startDate: first date it's due, doneThrough: last date added or skipped (or null) }
+  //   startDate: first date it's due, doneThrough: last date added or skipped (or null),
+  //   startsNextMonth: true (only on an income that counts for next month) }
   recurring: [],
-  // { monthlyIncome, monthlySavings (cents), monthKey: month last rolled over to }
+  // { monthlyIncome, monthlySavings (cents), monthKey: month last rolled over to (see months.js) }
   goal: null,
   // What the goal was in each finished month: { monthKey, expectedIncome, savingsTarget } (cents)
   goalHistory: [],
@@ -114,6 +118,7 @@ function cleanTransaction(t, usedIds, toCents){
     createdAt: Number.isFinite(t.createdAt) ? t.createdAt : new Date(t.date + "T00:00:00").getTime()
   };
   if (typeof t.recurringId === "string" && ID_PATTERN.test(t.recurringId)) clean.recurringId = t.recurringId;
+  if (type === "income" && t.startsNextMonth === true) clean.startsNextMonth = true;
   return clean;
 }
 
@@ -152,7 +157,7 @@ function cleanRecurringList(list){
     const id = (typeof r.id === "string" && ID_PATTERN.test(r.id) && !ids.has(r.id)) ? r.id : makeId();
     ids.add(id);
     const category = typeof r.category === "string" ? r.category.trim() : "";
-    out.push({
+    const rule = {
       id,
       type,
       amount,
@@ -162,7 +167,9 @@ function cleanRecurringList(list){
       day,
       startDate: r.startDate,
       doneThrough: isValidDateStr(r.doneThrough) ? r.doneThrough : null
-    });
+    };
+    if (type === "income" && r.startsNextMonth === true) rule.startsNextMonth = true;
+    out.push(rule);
   }
   return out;
 }

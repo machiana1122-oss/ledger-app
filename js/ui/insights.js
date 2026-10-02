@@ -1,9 +1,10 @@
 // Insights tab: money in and out month by month, spending by category for a period (compared with
-// last month), and the savings history.
+// last month), and the savings history. Months are Ledger's months (see months.js).
 
-import { inMonth, inMonthUpToDay, sumOf, categoryTotals, monthTotals, recentMonths } from "../calc.js";
+import { sumOf, categoryTotals, monthTotals, recentMonths } from "../calc.js";
+import { monthsOf } from "../months.js";
 import { savingsHistory, lifetimeSaved } from "../goal.js";
-import { todayStr, monthKeyOf, shiftMonthKey, dayOfMonth, monthLabel } from "../dates.js";
+import { todayStr, shiftMonthKey, addDays, daysBetween, monthLabel } from "../dates.js";
 import { html, setHtml } from "../html.js";
 import { $, money, renderCurrent } from "./shell.js";
 import { colorForCategory } from "./colors.js";
@@ -15,15 +16,16 @@ let trendSelected = null; // the month whose numbers are shown, or null for this
 
 export function renderInsights(state){
   const today = todayStr();
-  const thisMonth = monthKeyOf(today);
+  const months = monthsOf(state);
+  const thisMonth = months.of(today);
   const lastMonth = shiftMonthKey(thisMonth, -1);
-  const txns = period === "month" ? inMonth(state.transactions, thisMonth)
-    : period === "last" ? inMonth(state.transactions, lastMonth)
+  const txns = period === "month" ? months.txns(thisMonth)
+    : period === "last" ? months.txns(lastMonth)
     : state.transactions;
   const totals = categoryTotals(txns, "expense");
 
-  renderTrend(state, today);
-  renderComparison(state, totals, lastMonth, dayOfMonth(today));
+  renderTrend(state, thisMonth, today);
+  renderComparison(months, totals, thisMonth, today);
 
   const list = $("insightsList");
   if (totals.length === 0){
@@ -37,10 +39,9 @@ export function renderInsights(state){
 }
 
 // Money in and out for the last few months; the average leaves out this month, which isn't over yet
-function renderTrend(state, today){
-  const thisMonth = monthKeyOf(today);
+function renderTrend(state, thisMonth, today){
   const months = recentMonths(state, today, trendLength).map(key => {
-    const t = monthTotals(state.transactions, key);
+    const t = monthTotals(state, key);
     return { key, ...t, title: monthLabel(key) + ": in " + money(t.income) + ", out " + money(t.expense) + ", saved " + money(t.saved) };
   });
   const selected = months.find(m => m.key === trendSelected) || months[months.length - 1];
@@ -55,10 +56,12 @@ function renderTrend(state, today){
   }
 }
 
-// This month so far against the same days of last month
-function renderComparison(state, totals, lastMonth, day){
+// This month so far against the same number of days into last month
+function renderComparison(months, totals, thisMonth, today){
   const line = $("compareLine");
-  const lastTotal = sumOf(inMonthUpToDay(state.transactions, lastMonth, day), "expense");
+  const lastMonth = shiftMonthKey(thisMonth, -1);
+  const sameDay = addDays(months.start(lastMonth), daysBetween(months.start(thisMonth), today));
+  const lastTotal = sumOf(months.txns(lastMonth).filter(t => t.date <= sameDay), "expense");
   line.hidden = period !== "month" || lastTotal <= 0;
   if (line.hidden) return;
   const diff = totals.reduce((s, t) => s + t.total, 0) - lastTotal;

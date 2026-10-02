@@ -72,6 +72,7 @@
         <button class="month-nav" type="button" id="prevMonthBtn" aria-label="Previous month">&lsaquo;</button>
         <div class="month-picker-label">
           <span id="viewMonthLabel"></span>
+          <span class="month-range" id="viewMonthRange" hidden></span>
           <button class="link-btn" type="button" id="thisMonthBtn" hidden>Back to this month</button>
         </div>
         <button class="month-nav" type="button" id="nextMonthBtn" aria-label="Next month">&rsaquo;</button>
@@ -269,6 +270,10 @@
   </div>
   <p class="field-label">Note (optional)</p>
   <input type="text" id="noteInput" class="sheet-input" placeholder="What was it for?">
+  <div class="next-month-row" id="nextMonthRow" hidden>
+    <label class="repeat-row"><input type="checkbox" id="nextMonthInput"> Counts for next month</label>
+    <p class="field-hint" id="nextMonthHint"></p>
+  </div>
   <label class="repeat-row" id="repeatRow"><input type="checkbox" id="repeatInput"> Repeat every month</label>
   <button class="btn btn-gold btn-block" id="saveTxnBtn">Save transaction</button>
   <button class="btn btn-danger btn-block" id="deleteTxnBtn" hidden>Delete transaction</button>

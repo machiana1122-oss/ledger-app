@@ -1,14 +1,16 @@
 // Overview tab: recurring items that are due, a month picker, the balance, money in / out / saved,
-// the savings goal and spending by category.
+// the savings goal and spending by category. Months are Ledger's months, which can start early
+// on payday (see months.js).
 
 import { getState, commit, requestPersistentStorage } from "../store.js";
-import { balance, inMonth, monthTotals, categoryTotals, firstMonth, monthProjection } from "../calc.js";
+import { balance, monthTotals, categoryTotals, firstMonth, currentMonth, monthProjection } from "../calc.js";
+import { monthsOf, monthStartedByIncome } from "../months.js";
 import { goalStatus, savingsHistory, finishedMonth } from "../goal.js";
-import { dueItems, dueDates, addOccurrence, skipOccurrence, ruleName } from "../recurring.js";
-import { todayStr, monthKeyOf, monthLabel, shiftMonthKey, daysInMonth, shortDate } from "../dates.js";
+import { dueItems, dueDates, addOccurrence, skipOccurrence, ruleName, monthStartedBy } from "../recurring.js";
+import { todayStr, monthLabel, monthName, shiftMonthKey, shortDate } from "../dates.js";
 import { html, setHtml } from "../html.js";
 import { plural } from "../util.js";
-import { $, money, confirmChange, switchTab, renderCurrent } from "./shell.js";
+import { $, money, confirmChange, switchTab, renderCurrent, monthRange, monthStartNote } from "./shell.js";
 import { colorForCategory } from "./colors.js";
 import { donutSvg } from "./donut.js";
 import { renderBackupReminder } from "./backup.js";
@@ -18,7 +20,8 @@ let viewMonth = null;   // the month being looked at, or null for this month
 
 export function renderOverview(state){
   const today = todayStr();
-  const thisMonth = monthKeyOf(today);
+  const months = monthsOf(state);
+  const thisMonth = months.of(today);
   const earliest = firstMonth(state, today);
   if (viewMonth && (viewMonth >= thisMonth || viewMonth < earliest)) viewMonth = null;
   const month = viewMonth || thisMonth;
@@ -28,12 +31,14 @@ export function renderOverview(state){
   renderDue(state, today, isThisMonth);
 
   $("viewMonthLabel").textContent = monthLabel(month);
+  const range = monthRange(months, month, isThisMonth);
+  $("viewMonthRange").textContent = range;
+  $("viewMonthRange").hidden = !range;
   $("prevMonthBtn").disabled = month <= earliest;
   $("nextMonthBtn").disabled = isThisMonth;
   $("thisMonthBtn").hidden = isThisMonth;
 
-  const lastDay = month + "-" + String(daysInMonth(month)).padStart(2, "0");
-  const total = isThisMonth ? balance(state) : balance(state, lastDay);
+  const total = isThisMonth ? balance(state) : balance(state, months.end(month));
   $("balanceLabel").textContent = isThisMonth ? "Balance" : "Balance at the end of " + monthLabel(month);
   const balanceEl = $("balanceNum");
   balanceEl.textContent = money(total);
@@ -41,7 +46,7 @@ export function renderOverview(state){
   fitBalance();
   $("openingHintBtn").hidden = state.openingBalance !== null || state.transactions.length === 0;
 
-  const totals = monthTotals(state.transactions, month);
+  const totals = monthTotals(state, month);
   $("monthIncome").textContent = money(totals.income);
   $("monthExpense").textContent = money(totals.expense);
   $("monthSaved").textContent = money(totals.saved);
@@ -54,7 +59,7 @@ export function renderOverview(state){
 
   if (isThisMonth) renderGoal(state, today);
   else renderPastGoal(state, month);
-  renderSpending(state, month, isThisMonth);
+  renderSpending(months, month, isThisMonth);
 }
 
 // ---------- Recurring items that are due ----------
@@ -64,17 +69,16 @@ function renderDue(state, today, show){
   const waiting = items.reduce((n, item) => n + 1 + item.more, 0);
   $("dueAddAllBtn").hidden = waiting < 2;
   $("dueAddAllBtn").textContent = "Add all " + waiting;
-  setHtml($("dueList"), items.map(({ rule, date, more }) => html`<div class="due-item"><button type="button" class="due-info" data-rule="${rule.id}" data-date="${date}"><span class="due-name">${ruleName(rule)}</span><span class="due-meta"><span class="${rule.type}">${rule.type === "income" ? "+" : "-"}${money(rule.amount)}</span> · due ${shortDate(date)}${more ? html` · ${more} more after this` : ""}</span></button><button type="button" class="btn btn-ghost btn-small" data-action="skip" data-rule="${rule.id}" data-date="${date}">Skip</button><button type="button" class="btn btn-gold btn-small" data-action="add" data-rule="${rule.id}" data-date="${date}">Add</button></div>`));
+  setHtml($("dueList"), items.map(({ rule, date, more }) => html`<div class="due-item"><button type="button" class="due-info" data-rule="${rule.id}" data-date="${date}"><span class="due-name">${ruleName(rule)}</span><span class="due-meta"><span class="${rule.type}">${rule.type === "income" ? "+" : "-"}${money(rule.amount)}</span> · due ${shortDate(date)}${monthStartedBy(rule, date) ? " · starts " + monthName(monthStartedBy(rule, date)) : ""}${more ? html` · ${more} more after this` : ""}</span></button><button type="button" class="btn btn-ghost btn-small" data-action="skip" data-rule="${rule.id}" data-date="${date}">Skip</button><button type="button" class="btn btn-gold btn-small" data-action="add" data-rule="${rule.id}" data-date="${date}">Add</button></div>`));
 }
 
 function addDue(rule, date){
   const state = getState();
   const before = rule.doneThrough;
-  addOccurrence(state, rule, date);
-  const added = state.transactions[state.transactions.length - 1];
+  const added = addOccurrence(state, rule, date);
   commit();
   requestPersistentStorage();
-  confirmChange("Added " + ruleName(rule), () => {
+  confirmChange("Added " + ruleName(rule) + (added.startsNextMonth ? ". " + monthStartNote(monthStartedByIncome(added)) : ""), () => {
     getState().transactions = getState().transactions.filter(t => t !== added);
     rule.doneThrough = before;
     commit();
@@ -99,15 +103,14 @@ function addAllDue(){
   const before = new Map(state.recurring.map(rule => [rule, rule.doneThrough]));
   const added = [];
   for (const rule of state.recurring){
-    for (const date of dueDates(rule, today)){
-      addOccurrence(state, rule, date);
-      added.push(state.transactions[state.transactions.length - 1]);
-    }
+    for (const date of dueDates(rule, today)) added.push(addOccurrence(state, rule, date));
   }
   if (!added.length) return;
   commit();
   requestPersistentStorage();
-  confirmChange("Added " + plural(added.length, "recurring transaction"), () => {
+  // Mention the newest month a salary started
+  const started = added.map(monthStartedByIncome).filter(Boolean).sort().pop();
+  confirmChange("Added " + plural(added.length, "recurring transaction") + (started ? ". " + monthStartNote(started) : ""), () => {
     const s = getState();
     s.transactions = s.transactions.filter(t => !added.includes(t));
     before.forEach((doneThrough, rule) => { rule.doneThrough = doneThrough; });
@@ -127,10 +130,15 @@ function renderGoal(state, today){
   setHtml($("goalBannerWrap"), notices.month ? banner("month", monthNotice(state, notices.month)) : "");
 
   const s = goalStatus(state, today);
-  const monthName = monthLabel(goal.monthKey);
+  const thisMonthName = monthLabel(goal.monthKey);
+  // When next month's salary is due before the calendar month ends, this month ends the day before
+  const nextName = monthName(shiftMonthKey(goal.monthKey, 1));
+  const forDays = !s.payday ? "for the " + plural(s.daysLeft, "day") + " left in " + thisMonthName
+    : s.payday === today ? "for today, until " + nextName + " starts"
+    : "for the " + plural(s.daysLeft, "day") + " left until " + nextName + " starts on " + shortDate(s.payday);
   let headline;
   if (s.left > 0){
-    headline = html`<p class="safe-label">Safe to spend</p><p class="safe-amount"><strong>${money(s.perDay)}</strong> a day</p><p class="safe-sub">for the ${plural(s.daysLeft, "day")} left in ${monthName}, to save ${money(s.target)}</p>`;
+    headline = html`<p class="safe-label">Safe to spend</p><p class="safe-amount"><strong>${money(s.perDay)}</strong> a day</p><p class="safe-sub">${forDays}, to save ${money(s.target)}</p>`;
   } else if (s.left === 0){
     headline = html`<p class="safe-label">Safe to spend</p><p class="safe-amount"><strong>Nothing more</strong> this month</p><p class="safe-sub">Your budget is used up exactly, so you're still on track to save ${money(s.target)}.</p>`;
   } else {
@@ -142,7 +150,7 @@ function renderGoal(state, today){
   const billsPct = Math.min(100 - spentPct, pct(s.billsToCome));
   const details = [money(s.spent) + " spent"];
   if (s.billsToCome > 0) details.push(money(s.billsToCome) + " in bills to come");
-  details.push(money(s.budget) + " to spend in " + monthName);
+  details.push(money(s.budget) + " to spend in " + thisMonthName);
 
   setHtml($("goalBody"), html`${headline}<div class="bar-track split spaced" role="img" aria-label="${details.join(", ")}"><div class="bar-fill ${s.left < 0 ? "over" : "on-track"}" style="width:${spentPct.toFixed(1)}%"></div><div class="bar-fill bills" style="width:${billsPct.toFixed(1)}%"></div></div><p class="goal-note">${details.join(" · ")}</p>`);
 }
@@ -194,8 +202,8 @@ function finishedMonthLine(state, key){
 }
 
 // ---------- Spending by category ----------
-function renderSpending(state, month, isThisMonth){
-  const totals = categoryTotals(inMonth(state.transactions, month), "expense");
+function renderSpending(months, month, isThisMonth){
+  const totals = categoryTotals(months.txns(month), "expense");
   const donut = $("donut");
   donut.hidden = totals.length === 0;
   if (totals.length === 0){
@@ -240,10 +248,11 @@ export function initOverview(){
     commit();
   });
 
-  $("prevMonthBtn").addEventListener("click", () => showMonth(shiftMonthKey(viewMonth || monthKeyOf(todayStr()), -1)));
+  const thisMonth = () => currentMonth(getState(), todayStr());
+  $("prevMonthBtn").addEventListener("click", () => showMonth(shiftMonthKey(viewMonth || thisMonth(), -1)));
   $("nextMonthBtn").addEventListener("click", () => {
-    const next = shiftMonthKey(viewMonth || monthKeyOf(todayStr()), 1);
-    showMonth(next >= monthKeyOf(todayStr()) ? null : next);
+    const next = shiftMonthKey(viewMonth || thisMonth(), 1);
+    showMonth(next >= thisMonth() ? null : next);
   });
   $("thisMonthBtn").addEventListener("click", () => showMonth(null));
   $("openingHintBtn").addEventListener("click", () => {

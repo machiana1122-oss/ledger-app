@@ -3,15 +3,18 @@
 //   edit        an existing transaction
 //   occurrence  a recurring item that's due, prefilled so it can be adjusted before adding
 //   rule        a recurring item itself (amount, category, day of the month), or stop it
+// Incomes can be marked "Counts for next month" (a salary paid at the end of the month starts the
+// next month that day, see months.js); a due recurring item follows its rule.
 // Also deleting a transaction and stopping a recurring item (both with Undo).
 
 import { getState, commit, requestPersistentStorage } from "../store.js";
 import { parseAmount, centsToInput } from "../money.js";
-import { todayStr } from "../dates.js";
+import { todayStr, monthKeyOf, shiftMonthKey, monthName, shortDate } from "../dates.js";
+import { monthStartedByIncome } from "../months.js";
 import { addOccurrence, ruleFromTransaction, ruleName, ordinal } from "../recurring.js";
 import { html, setHtml } from "../html.js";
 import { makeId } from "../util.js";
-import { $, showToast, confirmChange } from "./shell.js";
+import { $, showToast, confirmChange, monthStartNote } from "./shell.js";
 
 let mode = "add";
 let editingId = null;      // edit: the transaction
@@ -37,6 +40,7 @@ function open(newMode, values){
   $("deleteTxnBtn").textContent = mode === "rule" ? "Stop repeating" : "Delete transaction";
   $("repeatRow").hidden = mode !== "add";
   $("repeatInput").checked = false;
+  $("nextMonthInput").checked = !!values.startsNextMonth;
   $("dateRow").hidden = mode === "rule";
   $("ruleDayRow").hidden = mode !== "rule";
   $("dateInput").value = values.date || todayStr();
@@ -66,7 +70,7 @@ export function openOccurrence(dueRule, date){
 export function openRuleEditor(editRule){
   editingId = null;
   rule = editRule;
-  open("rule", { type: rule.type, amount: rule.amount, category: rule.category, note: rule.note });
+  open("rule", { type: rule.type, amount: rule.amount, category: rule.category, note: rule.note, startsNextMonth: rule.startsNextMonth });
 }
 
 function closeSheet(){
@@ -83,6 +87,39 @@ function setType(type, preselectCategory){
   currentType = type;
   document.querySelectorAll(".type-toggle button").forEach(b => b.classList.toggle("active", b.dataset.type === type));
   renderCategoryPicker(preselectCategory);
+  updateNextMonth();
+}
+
+// "Counts for next month" is offered for incomes; its hint says what it does with the chosen date
+function updateNextMonth(){
+  const show = currentType === "income" && mode !== "occurrence";
+  $("nextMonthRow").hidden = !show;
+  if (!show) return;
+  let hint;
+  if (!$("nextMonthInput").checked){
+    hint = "Tick this for pay meant for next month, like a salary paid at the end of the month.";
+  } else if (mode === "rule"){
+    hint = "Each time it comes in, the next month starts that day.";
+  } else {
+    const date = $("dateInput").value || todayStr();
+    const key = shiftMonthKey(monthKeyOf(date), 1);
+    const next = monthName(key);
+    // Another income may have started that month earlier (this one being edited doesn't count)
+    const earlier = getState().transactions
+      .filter(t => t.id !== editingId && monthStartedByIncome(t) === key && t.date < date)
+      .map(t => t.date).sort()[0];
+    hint = earlier
+      ? next + " already started on " + shortDate(earlier) + ", so this counts for " + next + " too."
+      : next + " starts " + (date === todayStr() ? "today" : "on " + shortDate(date)) + ", and everything from that day counts for " + next + ".";
+  }
+  $("nextMonthHint").textContent = hint;
+}
+const nextMonthTicked = () => currentType === "income" && mode !== "occurrence" && $("nextMonthInput").checked;
+
+// Sets or removes the "counts for next month" mark (kept off the data when it isn't set)
+function setNextMonth(item, on){
+  if (on) item.startsNextMonth = true;
+  else delete item.startsNextMonth;
 }
 
 function renderCategoryPicker(preselectCategory){
@@ -107,39 +144,53 @@ function save(){
   const date = $("dateInput").value || todayStr();
   const note = $("noteInput").value.trim();
   const values = { type: currentType, amount, category: selectedCategory, note };
+  const nextMonth = nextMonthTicked();
   const state = getState();
+  // Said when a month now starts on a different day (worked out once the change is in)
+  const startNote = key => key ? ". " + monthStartNote(key) : "";
 
   if (mode === "edit"){
     const existing = editingTxn();
-    if (existing) Object.assign(existing, values, { date });
+    let moved = null;
+    if (existing){
+      const before = { started: monthStartedByIncome(existing), date: existing.date };
+      Object.assign(existing, values, { date });
+      setNextMonth(existing, nextMonth);
+      // Only when this edit moved a month's start: newly marked, unmarked, or its date changed
+      const started = monthStartedByIncome(existing);
+      moved = started && (started !== before.started || date !== before.date) ? started
+        : !started && before.started ? before.started : null;
+    }
     closeSheet();
     commit();
-    confirmChange("Transaction updated");
+    confirmChange("Transaction updated" + startNote(moved));
   } else if (mode === "occurrence"){
     const dueRule = rule;
-    addOccurrence(state, dueRule, occurrenceDate, { ...values, date });
+    const added = addOccurrence(state, dueRule, occurrenceDate, { ...values, date });
     closeSheet();
     commit();
-    confirmChange("Added " + ruleName(dueRule));
+    confirmChange("Added " + ruleName(dueRule) + startNote(monthStartedByIncome(added)));
     requestPersistentStorage();
   } else if (mode === "rule"){
     Object.assign(rule, values, { day: parseInt($("ruleDayInput").value, 10) });
+    setNextMonth(rule, nextMonth);
     closeSheet();
     commit();
     confirmChange("Recurring item updated");
   } else {
     const txn = { id: makeId(), ...values, date, createdAt: Date.now() };
-    let message = "Transaction added";
+    setNextMonth(txn, nextMonth);
+    let repeats = "";
     if ($("repeatInput").checked){
       const newRule = ruleFromTransaction(txn);
       txn.recurringId = newRule.id;
       state.recurring.push(newRule);
-      message = "Transaction added. It repeats every month on the " + ordinal(newRule.day);
+      repeats = ". It repeats every month on the " + ordinal(newRule.day);
     }
     state.transactions.push(txn);
     closeSheet();
     commit();
-    confirmChange(message);
+    confirmChange("Transaction added" + startNote(monthStartedByIncome(txn)) + repeats);
     requestPersistentStorage();
   }
 }
@@ -150,7 +201,9 @@ export function deleteTransaction(id){
   if (index === -1) return;
   const [removed] = state.transactions.splice(index, 1);
   commit();
-  confirmChange("Transaction deleted", () => {
+  // Deleting a salary that started a month moves that month's start back
+  const started = monthStartedByIncome(removed);
+  confirmChange("Transaction deleted" + (started ? ". " + monthStartNote(started) : ""), () => {
     getState().transactions.push(removed);
     commit();
     confirmChange("Restored");
@@ -187,6 +240,8 @@ export function initSheet(){
     $("catPicker").querySelectorAll(".cat-pill").forEach(p => p.classList.toggle("active", p === pill));
     selectedCategory = pill.dataset.cat;
   });
+  $("dateInput").addEventListener("change", updateNextMonth);
+  $("nextMonthInput").addEventListener("change", updateNextMonth);
   $("saveTxnBtn").addEventListener("click", save);
   $("deleteTxnBtn").addEventListener("click", () => {
     if (mode === "rule" && rule){

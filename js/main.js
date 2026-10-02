@@ -1,6 +1,6 @@
 // Starts Ledger: loads the data, connects the screens, and keeps "today" up to date.
 
-import { load, getState, save, onChange, onSave, requestPersistentStorage } from "./store.js";
+import { load, getState, save, beforeCommit, onChange, onSave, requestPersistentStorage } from "./store.js";
 import { applyGoalRollover } from "./goal.js";
 import { todayStr } from "./dates.js";
 import { handleQuickAdd } from "./quickadd.js";
@@ -14,6 +14,8 @@ import { initSheet } from "./ui/sheet.js";
 import { initBackup } from "./ui/backup.js";
 
 const loaded = load();
+// A change can start a new month (logging next month's salary) or undo one (removing it)
+beforeCommit(state => applyGoalRollover(state, todayStr()));
 onSave(updateSaveWarning);
 onChange(renderCurrent);
 

@@ -8,6 +8,10 @@ device, and works offline.
   with the arrows), what's safe to spend per day to reach your savings goal, and spending by category.
 - **Recurring** - rent, salary, subscriptions: tick "Repeat every month" when adding one. When it's
   due, Overview asks you to add it (one tap, or change it first) or skip it. Nothing is logged by itself.
+- **Months start on payday** - paid at the end of the month? Tick "Counts for next month" on your
+  salary: the next month starts the day it arrives, and everything from then on counts for that
+  month. Months, totals, the goal, charts and History all follow it. A salary that comes late
+  (after the 1st) moves nothing.
 - **Insights** - money in and out month by month, where it goes, and how each month's goal went.
 - **Starting balance** (Settings) - what you had before you started logging, so the balance matches
   your real money.
@@ -23,9 +27,10 @@ Live: https://machiana1122-oss.github.io/ledger-app/
 | `js/main.js` | Starts the app and connects everything |
 | `js/store.js` | Holds the data, loads and saves it |
 | `js/schema.js` | The data format: checks saved data and backups, and upgrades older formats |
+| `js/months.js` | Which month a date counts for (months can start early, on payday) |
 | `js/calc.js` | Totals worked out from the transactions (balance, months, the spending projection) |
 | `js/goal.js` | Savings goal numbers (safe to spend per day) and the month rollover |
-| `js/recurring.js` | Recurring transactions: which dates are due, adding or skipping them |
+| `js/recurring.js` | Recurring transactions: which dates are due, adding or skipping them, and when this month is expected to end |
 | `js/dates.js`, `js/money.js`, `js/html.js`, `js/util.js` | Small helpers |
 | `js/quickadd.js` | Adding a transaction from a link (iPhone Shortcuts / Back Tap) |
 | `js/offline.js`, `sw.js` | Offline support (the service worker) |
@@ -42,8 +47,12 @@ Live: https://machiana1122-oss.github.io/ledger-app/
   them, so they can never get out of step.
 - **Recurring items remember the last date handled** (`doneThrough`), so each month is asked about
   once, in order, even after weeks away. Transactions added from one carry its `recurringId`.
+- **Months are worked out, not stored.** A month follows the calendar, except that an income
+  marked `startsNextMonth` starts the next month on its date. Everything that works per month asks
+  `js/months.js`, and the savings goal moves to a new month inside `commit()`, so logging a salary
+  starts the month at once and removing it (or Undo) reopens the previous one.
 - **Money is stored in whole cents** (12.50 is stored as `1250`), so totals are always exact.
-- **The saved data has a `version` number** (currently 3). If the format changes, add the upgrade
+- **The saved data has a `version` number** (currently 4). If the format changes, add the upgrade
   to `js/schema.js` and raise `SCHEMA_VERSION`. Older backups keep working, and data from a newer
   version of the app is never overwritten.
 - **Safe HTML.** Page content is built with the `html` template from `js/html.js`, which escapes

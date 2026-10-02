@@ -4,8 +4,9 @@
 import { getState, commit } from "../store.js";
 import { cleanCurrency } from "../schema.js";
 import { incomeInMonth } from "../goal.js";
+import { currentMonth } from "../calc.js";
 import { parseAmount, centsToInput } from "../money.js";
-import { currentMonthKey, shiftMonthKey, todayStr, shortDate } from "../dates.js";
+import { shiftMonthKey, todayStr, shortDate } from "../dates.js";
 import { nextDate, ruleName, ordinal } from "../recurring.js";
 import { html, setHtml } from "../html.js";
 import { $, money, showToast, confirmChange, renderCurrent } from "./shell.js";
@@ -31,7 +32,7 @@ function renderRecurring(state){
   setHtml($("recurringList"), state.recurring.length
     ? state.recurring.map(rule => {
         const next = nextDate(rule);
-        return html`<div class="rule-row" data-rule="${rule.id}" role="button" tabindex="0"><div class="rule-info"><div class="rule-name">${ruleName(rule)}</div><div class="rule-meta"><span class="${rule.type}">${rule.type === "income" ? "+" : "-"}${money(rule.amount)}</span> · every month on the ${ordinal(rule.day)} · ${next <= today ? "due now" : "next " + shortDate(next)}</div></div><button class="del-btn" type="button" data-stop="${rule.id}" aria-label="Stop repeating ${ruleName(rule)}">&times;</button></div>`;
+        return html`<div class="rule-row" data-rule="${rule.id}" role="button" tabindex="0"><div class="rule-info"><div class="rule-name">${ruleName(rule)}</div><div class="rule-meta"><span class="${rule.type}">${rule.type === "income" ? "+" : "-"}${money(rule.amount)}</span> · every month on the ${ordinal(rule.day)}${rule.startsNextMonth ? " · starts the next month" : ""} · ${next <= today ? "due now" : "next " + shortDate(next)}</div></div><button class="del-btn" type="button" data-stop="${rule.id}" aria-label="Stop repeating ${ruleName(rule)}">&times;</button></div>`;
       })
     : html`<p class="empty-note">No recurring transactions yet.</p>`);
 }
@@ -99,7 +100,8 @@ function openGoalForm(isEdit){
     $("goalSavingsInput").value = centsToInput(goal.monthlySavings);
   } else {
     // Starts from what was actually earned last month
-    const lastIncome = incomeInMonth(getState().transactions, shiftMonthKey(currentMonthKey(), -1));
+    const state = getState();
+    const lastIncome = incomeInMonth(state, shiftMonthKey(currentMonth(state, todayStr()), -1));
     $("goalIncomeInput").value = lastIncome > 0 ? centsToInput(lastIncome) : "";
     $("goalSavingsInput").value = "";
   }
@@ -114,7 +116,7 @@ function saveGoal(){
   if (!(monthlySavings > 0)){ showToast("Enter how much you want to save"); return; }
   if (monthlySavings >= monthlyIncome){ showToast("Your savings target needs to be less than your income"); return; }
   const wasEditing = !!state.goal;
-  state.goal = { monthlyIncome, monthlySavings, monthKey: currentMonthKey() };
+  state.goal = { monthlyIncome, monthlySavings, monthKey: currentMonth(state, todayStr()) };
   goalFormOpen = false;
   commit();
   confirmChange(wasEditing ? "Goal updated" : "Goal set");

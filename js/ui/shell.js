@@ -1,8 +1,10 @@
-// The app's frame: tabs (only the visible one is drawn), the message bar ("toast") and the
-// "not saved" warning shown on every tab.
+// The app's frame: tabs (only the visible one is drawn), the message bar ("toast"), the
+// "not saved" warning shown on every tab, and small helpers shared by the tabs.
 
 import { getState, lastSaveWorked, saveProblem } from "../store.js";
 import { formatMoney } from "../money.js";
+import { monthsOf } from "../months.js";
+import { todayStr, shiftMonthKey, monthName, shortDate } from "../dates.js";
 import { html, setHtml } from "../html.js";
 
 const TAB_TITLES = { overview: "Overview", history: "History", insights: "Insights", settings: "Settings" };
@@ -13,6 +15,24 @@ let currentTab = "overview";
 export const money = cents => formatMoney(cents, getState().currency);
 export const currentView = () => currentTab;
 export const $ = id => document.getElementById(id);
+
+// The days a month covers when they differ from the calendar month (see months.js):
+// "28 Aug – 27 Sept", or "Since 28 Sept" for this month while its end isn't known yet; "" otherwise
+export function monthRange(months, key, isThisMonth){
+  const endsEarly = months.startsEarly(shiftMonthKey(key, 1));
+  if (!months.startsEarly(key) && !endsEarly) return "";
+  const from = shortDate(months.start(key));
+  return isThisMonth && !endsEarly ? "Since " + from : from + " – " + shortDate(months.end(key));
+}
+
+// Said after logging or changing an income that starts a month: "November starts today",
+// "November will start on 28 Oct", "September now starts on 28 Aug"
+export function monthStartNote(key){
+  const start = monthsOf(getState()).start(key);
+  const today = todayStr();
+  if (start === today) return monthName(key) + " starts today";
+  return monthName(key) + (start > today ? " will start on " : " now starts on ") + shortDate(start);
+}
 
 export function registerView(name, render){ views[name] = render; }
 

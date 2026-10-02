@@ -1,7 +1,8 @@
 // Holds the app's data, loads and saves it, and tells the screen when it changed.
 //
 // The rule for every change: change getState() -> commit() (saves, then redraws). Drawing code only
-// reads the data and never changes it.
+// reads the data and never changes it. Steps that keep the data consistent after any change (like
+// moving the savings goal to a new month when a salary starts one) run in commit, before saving.
 
 import { freshState, sanitizeState } from "./schema.js";
 import { plural } from "./util.js";
@@ -14,6 +15,7 @@ export const SET_ASIDE_KEY_PREFIX = "ledger_set_aside_";
 let state = freshState();
 let lastSaveOk = true;
 let saveBlockedReason = null; // "newer": this device holds data from a newer version of Ledger
+const commitSteps = [];
 const changeListeners = [];
 const saveListeners = [];
 
@@ -23,6 +25,7 @@ export const lastSaveWorked = () => lastSaveOk;
 export const saveProblem = () => saveBlockedReason || (lastSaveOk ? null : "failed");
 export const onChange = fn => changeListeners.push(fn);
 export const onSave = fn => saveListeners.push(fn);
+export const beforeCommit = fn => commitSteps.push(fn);
 
 // Saves the data. Returns false when the browser refuses (private browsing, storage full...).
 export function save(){
@@ -40,8 +43,9 @@ export function save(){
   return lastSaveOk;
 }
 
-// Every change ends here: save it, then redraw what's on screen
+// Every change ends here: keep the data consistent, save it, then redraw what's on screen
 export function commit(){
+  commitSteps.forEach(fn => fn(state));
   const ok = save();
   changeListeners.forEach(fn => fn());
   return ok;

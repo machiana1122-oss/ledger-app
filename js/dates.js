@@ -5,8 +5,8 @@ const pad2 = n => String(n).padStart(2, "0");
 
 export function toDateStr(d){ return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
 export function todayStr(){ return toDateStr(new Date()); }
+// The calendar month of a date. (Which of Ledger's months a date counts for is decided in months.js.)
 export function monthKeyOf(dateStr){ return dateStr.slice(0, 7); }
-export function currentMonthKey(){ return monthKeyOf(todayStr()); }
 export function dayOfMonth(dateStr){ return parseInt(dateStr.slice(8, 10), 10); }
 
 // Rejects impossible dates such as 2026-02-30
@@ -30,6 +30,11 @@ export function daysInMonth(key){
 export function monthLabel(key){
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+// "October"
+export function monthName(key){
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long" });
 }
 // "Oct", for chart labels
 export function shortMonthLabel(key){
