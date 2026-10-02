@@ -31,17 +31,21 @@ export function monthLabel(key){
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
+// "Oct", for chart labels
+export function shortMonthLabel(key){
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
+}
+// "1 Oct" (the year is added when it isn't this year)
+export function shortDate(dateStr){
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const sameYear = y === new Date().getFullYear();
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" });
+}
 
 export function addDays(dateStr, days){
   const d = new Date(dateStr + "T00:00:00");
   d.setDate(d.getDate() + days);
-  return toDateStr(d);
-}
-// Weeks start on Monday
-export function startOfWeek(dateStr){
-  const d = new Date(dateStr + "T00:00:00");
-  const day = d.getDay();
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
   return toDateStr(d);
 }
 // Whole calendar days from d1 to d2 (rounding absorbs daylight-saving hours)

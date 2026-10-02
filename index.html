@@ -60,17 +60,39 @@
         </div>
       </div>
 
+      <div class="card due-card" id="dueCard" hidden>
+        <div class="due-head">
+          <h2>Recurring</h2>
+          <button class="link-btn" type="button" id="dueAddAllBtn" hidden>Add all</button>
+        </div>
+        <div id="dueList"></div>
+      </div>
+
+      <div class="month-picker">
+        <button class="month-nav" type="button" id="prevMonthBtn" aria-label="Previous month">&lsaquo;</button>
+        <div class="month-picker-label">
+          <span id="viewMonthLabel"></span>
+          <button class="link-btn" type="button" id="thisMonthBtn" hidden>Back to this month</button>
+        </div>
+        <button class="month-nav" type="button" id="nextMonthBtn" aria-label="Next month">&rsaquo;</button>
+      </div>
+
       <div class="hero">
-        <span class="label">Balance</span>
+        <span class="label" id="balanceLabel">Balance</span>
         <div class="balance" id="balanceNum"></div>
+        <button class="link-btn hero-hint" type="button" id="openingHintBtn" hidden>Doesn't match your real money? Set a starting balance</button>
         <div class="stat-row">
           <div class="stat-chip income">
-            <span class="k">In this month</span>
+            <span class="k">Money in</span>
             <span class="v" id="monthIncome"></span>
           </div>
           <div class="stat-chip expense">
-            <span class="k">Out this month</span>
+            <span class="k">Money out</span>
             <span class="v" id="monthExpense"></span>
+          </div>
+          <div class="stat-chip saved">
+            <span class="k">Saved</span>
+            <span class="v" id="monthSaved"></span>
           </div>
         </div>
       </div>
@@ -83,7 +105,7 @@
         <div id="goalBody"></div>
       </div>
 
-      <div class="section-head"><h2>Spending by category</h2></div>
+      <div class="section-head"><h2 id="spendingTitle">Spending by category</h2></div>
       <div class="card">
         <div class="donut-wrap" id="donut" hidden></div>
         <div class="cat-legend" id="catLegend"></div>
@@ -103,13 +125,26 @@
 
     <!-- INSIGHTS -->
     <section class="tab-panel" id="tab-insights">
+      <div class="section-head section-head-first">
+        <h2>Month by month</h2>
+        <div class="seg" role="group" aria-label="How many months">
+          <button class="seg-btn active" type="button" data-trend="6">6 months</button>
+          <button class="seg-btn" type="button" data-trend="12">12 months</button>
+        </div>
+      </div>
+      <div class="card trend-card">
+        <div id="trendChart"></div>
+        <p class="trend-detail" id="trendDetail" aria-live="polite"></p>
+        <p class="trend-average" id="trendAverage"></p>
+      </div>
+
+      <div class="section-head"><h2>Where it goes</h2></div>
       <div class="period-row">
         <button class="filter-btn active" data-period="month">This month</button>
         <button class="filter-btn" data-period="last">Last month</button>
         <button class="filter-btn" data-period="all">All time</button>
       </div>
       <div class="compare-line" id="compareLine" hidden></div>
-      <div class="section-head"><h2>Where it goes</h2></div>
       <div class="card">
         <div class="bar-list" id="insightsList"></div>
       </div>
@@ -132,6 +167,15 @@
       </div>
 
       <div class="set-block">
+        <h3>Starting balance</h3>
+        <p class="hint">What you had when you started using Ledger. Your balance is this plus everything you log.</p>
+        <div class="set-row">
+          <label for="openingBalanceInput">Money at the start</label>
+          <input type="text" class="cur-input wide" id="openingBalanceInput" placeholder="0.00">
+        </div>
+      </div>
+
+      <div class="set-block">
         <h3>Expense categories</h3>
         <p class="hint">Tap a category to rename it.</p>
         <div class="chip-wrap" id="categoryChips"></div>
@@ -139,6 +183,12 @@
           <input type="text" id="newCategoryInput" placeholder="New category">
           <button class="btn btn-gold" id="addCategoryBtn">Add</button>
         </div>
+      </div>
+
+      <div class="set-block">
+        <h3>Recurring</h3>
+        <p class="hint">Rent, salary, subscriptions... To add one, tick "Repeat every month" when you add a transaction. Tap one to change it.</p>
+        <div id="recurringList"></div>
       </div>
 
       <div class="set-block">
@@ -209,10 +259,17 @@
   </div>
   <p class="field-label">Category</p>
   <div class="cat-picker" id="catPicker"></div>
-  <p class="field-label">Date</p>
-  <input type="date" id="dateInput" class="sheet-input">
+  <div id="dateRow">
+    <p class="field-label">Date</p>
+    <input type="date" id="dateInput" class="sheet-input">
+  </div>
+  <div id="ruleDayRow" hidden>
+    <label class="field-label" for="ruleDayInput">Day of the month</label>
+    <select id="ruleDayInput" class="sheet-input"></select>
+  </div>
   <p class="field-label">Note (optional)</p>
   <input type="text" id="noteInput" class="sheet-input" placeholder="What was it for?">
+  <label class="repeat-row" id="repeatRow"><input type="checkbox" id="repeatInput"> Repeat every month</label>
   <button class="btn btn-gold btn-block" id="saveTxnBtn">Save transaction</button>
   <button class="btn btn-danger btn-block" id="deleteTxnBtn" hidden>Delete transaction</button>
 </div>

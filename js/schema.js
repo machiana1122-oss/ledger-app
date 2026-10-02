@@ -6,29 +6,38 @@
 //      the savings history stored each month's totals
 //   2  amounts in whole cents (1250); totals and allowances are worked out from the transactions,
 //      so only facts are stored: transactions, settings and what the goal was each month
+//   3  adds the starting balance and recurring transactions; the weekly allowance is replaced by
+//      "safe to spend per day", so the goal no longer tracks weeks
 
-import { isValidDateStr, isValidMonthKey, addDays } from "./dates.js";
+import { isValidDateStr, isValidMonthKey } from "./dates.js";
 import { clone, isObj, makeId } from "./util.js";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const MAX_GOAL_HISTORY = 24;
 const MAX_CURRENCY_LENGTH = 4;
+const ID_PATTERN = /^[\w-]{1,64}$/;
 
 const DEFAULT_STATE = {
   version: SCHEMA_VERSION,
   currency: "$",
+  // Money held before the first transaction (cents, may be negative); null until it's set
+  openingBalance: null,
   categories: {
     expense: ["Food", "Transport", "Housing", "Bills", "Shopping", "Health", "Entertainment", "Other"],
     income: ["Salary", "Gift", "Freelance", "Other"]
   },
-  // { id, type: "income"|"expense", amount (cents), category, note, date "YYYY-MM-DD", createdAt (ms) }
+  // { id, type: "income"|"expense", amount (cents), category, note, date "YYYY-MM-DD", createdAt (ms),
+  //   recurringId (only if it came from a recurring item) }
   transactions: [],
-  // { monthlyIncome, monthlySavings (cents), monthKey: month last rolled over to, weekStart: week last seen }
+  // Recurring items: { id, type, amount (cents), category, note, frequency: "monthly", day (1-31),
+  //   startDate: first date it's due, doneThrough: last date added or skipped (or null) }
+  recurring: [],
+  // { monthlyIncome, monthlySavings (cents), monthKey: month last rolled over to }
   goal: null,
   // What the goal was in each finished month: { monthKey, expectedIncome, savingsTarget } (cents)
   goalHistory: [],
-  // Summaries shown on Overview until dismissed: month { months, newMonthKey, incomeUpdatedTo }, week { weekStart }
-  goalNotices: { month: null, week: null },
+  // Summary shown on Overview until dismissed: month { months, newMonthKey, incomeUpdatedTo }
+  goalNotices: { month: null },
   // When a backup was last handed over, and until when the reminder is snoozed (ms)
   lastBackupAt: null,
   backupReminderSnoozedUntil: null
@@ -60,14 +69,16 @@ export function sanitizeState(raw){
     state: {
       version: SCHEMA_VERSION,
       currency: cleanCurrency(raw.currency),
+      openingBalance: cleanOpeningBalance(raw.openingBalance),
       categories: {
         expense: cleanCategoryList(categories.expense, DEFAULT_STATE.categories.expense),
         income: cleanCategoryList(categories.income, DEFAULT_STATE.categories.income)
       },
       transactions,
+      recurring: cleanRecurringList(raw.recurring),
       goal,
       goalHistory: cleanGoalHistory(raw.goalHistory, version, toCents),
-      goalNotices: goal ? cleanGoalNotices(raw.goalNotices, version, toCents, raw.goal) : clone(DEFAULT_STATE.goalNotices),
+      goalNotices: goal ? cleanGoalNotices(raw.goalNotices, version, toCents) : clone(DEFAULT_STATE.goalNotices),
       lastBackupAt: cleanTimestamp(raw.lastBackupAt),
       backupReminderSnoozedUntil: cleanTimestamp(raw.backupReminderSnoozedUntil)
     },
@@ -82,7 +93,7 @@ function readNumber(value){
   return NaN;
 }
 const decimalToCents = value => Math.round(readNumber(value) * 100); // version 1: 12.5 -> 1250
-const wholeCents = value => Math.round(readNumber(value));            // version 2: already cents
+const wholeCents = value => Math.round(readNumber(value));            // version 2 and later: already cents
 
 // A transaction is kept only if its type, amount and date can be trusted; the rest is repaired.
 function cleanTransaction(t, usedIds, toCents){
@@ -91,9 +102,9 @@ function cleanTransaction(t, usedIds, toCents){
   const amount = toCents(t.amount);
   if (!type || !(amount > 0) || !isValidDateStr(t.date)) return null;
   const category = typeof t.category === "string" ? t.category.trim() : "";
-  const id = (typeof t.id === "string" && /^[\w-]{1,64}$/.test(t.id) && !usedIds.has(t.id)) ? t.id : makeId();
+  const id = (typeof t.id === "string" && ID_PATTERN.test(t.id) && !usedIds.has(t.id)) ? t.id : makeId();
   usedIds.add(id);
-  return {
+  const clean = {
     id,
     type,
     amount,
@@ -102,12 +113,19 @@ function cleanTransaction(t, usedIds, toCents){
     date: t.date,
     createdAt: Number.isFinite(t.createdAt) ? t.createdAt : new Date(t.date + "T00:00:00").getTime()
   };
+  if (typeof t.recurringId === "string" && ID_PATTERN.test(t.recurringId)) clean.recurringId = t.recurringId;
+  return clean;
 }
 
 // The currency is shown inside the page everywhere, so markup characters are stripped
 export function cleanCurrency(value){
   const s = typeof value === "string" ? value.replace(/[<>&"'`]/g, "").trim().slice(0, MAX_CURRENCY_LENGTH).trim() : "";
   return s || DEFAULT_STATE.currency;
+}
+
+// Whole cents; can be negative (money owed when starting out)
+function cleanOpeningBalance(value){
+  return Number.isFinite(value) ? Math.round(value) : null;
 }
 
 function cleanCategoryList(list, fallback){
@@ -121,13 +139,40 @@ function cleanCategoryList(list, fallback){
   return out.length ? out : fallback.slice();
 }
 
+// Recurring items only exist from version 3, so their amounts are always cents
+function cleanRecurringList(list){
+  const out = [];
+  const ids = new Set();
+  for (const r of Array.isArray(list) ? list : []){
+    if (!isObj(r)) continue;
+    const type = (r.type === "income" || r.type === "expense") ? r.type : null;
+    const amount = wholeCents(r.amount);
+    const day = r.day;
+    if (!type || !(amount > 0) || !Number.isInteger(day) || day < 1 || day > 31 || !isValidDateStr(r.startDate)) continue;
+    const id = (typeof r.id === "string" && ID_PATTERN.test(r.id) && !ids.has(r.id)) ? r.id : makeId();
+    ids.add(id);
+    const category = typeof r.category === "string" ? r.category.trim() : "";
+    out.push({
+      id,
+      type,
+      amount,
+      category: category || "Other",
+      note: typeof r.note === "string" ? r.note : "",
+      frequency: "monthly",
+      day,
+      startDate: r.startDate,
+      doneThrough: isValidDateStr(r.doneThrough) ? r.doneThrough : null
+    });
+  }
+  return out;
+}
+
 function cleanGoal(g, toCents){
   if (!isObj(g) || !isValidMonthKey(g.monthKey)) return null;
   const monthlyIncome = toCents(g.monthlyIncome);
   const monthlySavings = toCents(g.monthlySavings);
   if (!(monthlyIncome >= 0) || !(monthlySavings > 0)) return null;
-  // A missing week is filled in by the next rollover check
-  return { monthlyIncome, monthlySavings, monthKey: g.monthKey, weekStart: isValidDateStr(g.weekStart) ? g.weekStart : null };
+  return { monthlyIncome, monthlySavings, monthKey: g.monthKey };
 }
 
 // One entry per month, oldest first. Version 1 stored the month's totals; only what the goal was
@@ -145,7 +190,9 @@ function cleanGoalHistory(list, version, toCents){
   return [...byMonth.keys()].sort().slice(-MAX_GOAL_HISTORY).map(k => byMonth.get(k));
 }
 
-function cleanGoalNotices(n, version, toCents, rawGoal){
+// Only the month summary is kept: the weekly summaries of versions 1 and 2 belonged to the weekly
+// allowance, which "safe to spend per day" replaced in version 3
+function cleanGoalNotices(n, version, toCents){
   const out = clone(DEFAULT_STATE.goalNotices);
   if (!isObj(n)) return out;
   const m = n.month;
@@ -157,13 +204,6 @@ function cleanGoalNotices(n, version, toCents, rawGoal){
     if (months.length && months.every(isValidMonthKey) && (incomeUpdatedTo === null || Number.isFinite(incomeUpdatedTo))){
       out.month = { months, newMonthKey: m.newMonthKey, incomeUpdatedTo };
     }
-  }
-  const w = n.week;
-  if (version === 1){
-    // Version 1 kept the numbers; the week it was about is the one before the goal's current week
-    if (isObj(w) && isObj(rawGoal) && isValidDateStr(rawGoal.weekStart)) out.week = { weekStart: addDays(rawGoal.weekStart, -7) };
-  } else if (isObj(w) && isValidDateStr(w.weekStart)){
-    out.week = { weekStart: w.weekStart };
   }
   return out;
 }

@@ -37,7 +37,7 @@ export function renderHistory(state){
 
 function row(t){
   const color = colorForCategory(t.category);
-  return html`<div class="txn-row" data-id="${t.id}" role="button" tabindex="0"><div class="txn-dot" style="background:${color}22; color:${color}">${t.category.charAt(0).toUpperCase()}</div><div class="txn-info"><div class="cat">${t.category}</div><div class="note">${t.note || t.date}</div></div><div class="txn-amt ${t.type}">${t.type === "income" ? "+" : "-"}${money(t.amount)}</div><button class="del-btn" aria-label="Delete" data-id="${t.id}">&times;</button></div>`;
+  return html`<div class="txn-row" data-id="${t.id}" role="button" tabindex="0"><div class="txn-dot" style="background:${color}22; color:${color}">${t.category.charAt(0).toUpperCase()}</div><div class="txn-info"><div class="cat">${t.category}${t.recurringId ? html`<span class="repeat-mark" title="Recurring" aria-label="recurring"> ↻</span>` : ""}</div><div class="note">${t.note || t.date}</div></div><div class="txn-amt ${t.type}">${t.type === "income" ? "+" : "-"}${money(t.amount)}</div><button class="del-btn" aria-label="Delete" data-id="${t.id}">&times;</button></div>`;
 }
 
 function openRow(rowEl){

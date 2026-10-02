@@ -37,7 +37,8 @@ if (loaded.problem) showToast(loaded.problem, null, 6000);
 requestPersistentStorage();
 
 // The app can stay open (or sit in the background on a phone) across midnight.
-// When the date changes, close any finished month/week and redraw with the new "today".
+// When the date changes, close any finished month and redraw with the new "today"
+// (which also shows recurring items that have become due).
 let lastSeenDay = todayStr();
 function refreshIfNewDay(){
   if (todayStr() === lastSeenDay) return;

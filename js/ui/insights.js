@@ -1,13 +1,17 @@
-// Insights tab: spending by category for a period, compared with last month, and the savings history.
+// Insights tab: money in and out month by month, spending by category for a period (compared with
+// last month), and the savings history.
 
-import { inMonth, inMonthUpToDay, sumOf, categoryTotals } from "../calc.js";
+import { inMonth, inMonthUpToDay, sumOf, categoryTotals, monthTotals, recentMonths } from "../calc.js";
 import { savingsHistory, lifetimeSaved } from "../goal.js";
 import { todayStr, monthKeyOf, shiftMonthKey, dayOfMonth, monthLabel } from "../dates.js";
 import { html, setHtml } from "../html.js";
 import { $, money, renderCurrent } from "./shell.js";
 import { colorForCategory } from "./colors.js";
+import { trendSvg } from "./trend.js";
 
 let period = "month";   // "month" | "last" | "all"
+let trendLength = 6;    // months in the chart
+let trendSelected = null; // the month whose numbers are shown, or null for this month
 
 export function renderInsights(state){
   const today = todayStr();
@@ -18,6 +22,7 @@ export function renderInsights(state){
     : state.transactions;
   const totals = categoryTotals(txns, "expense");
 
+  renderTrend(state, today);
   renderComparison(state, totals, lastMonth, dayOfMonth(today));
 
   const list = $("insightsList");
@@ -29,6 +34,25 @@ export function renderInsights(state){
   }
 
   renderSavingsHistory(state);
+}
+
+// Money in and out for the last few months; the average leaves out this month, which isn't over yet
+function renderTrend(state, today){
+  const thisMonth = monthKeyOf(today);
+  const months = recentMonths(state, today, trendLength).map(key => {
+    const t = monthTotals(state.transactions, key);
+    return { key, ...t, title: monthLabel(key) + ": in " + money(t.income) + ", out " + money(t.expense) + ", saved " + money(t.saved) };
+  });
+  const selected = months.find(m => m.key === trendSelected) || months[months.length - 1];
+  setHtml($("trendChart"), trendSvg(months, selected.key, "Money in and out, month by month. Choose a month to see its numbers."));
+  setHtml($("trendDetail"), html`<strong>${monthLabel(selected.key)}${selected.key === thisMonth ? " so far" : ""}</strong><span class="trend-figures"><span class="income">In ${money(selected.income)}</span> · <span class="expense">Out ${money(selected.expense)}</span> · <span class="${selected.saved < 0 ? "expense" : ""}">Saved ${money(selected.saved)}</span></span>`);
+  const finished = months.filter(m => m.key !== thisMonth);
+  $("trendAverage").hidden = finished.length === 0;
+  if (finished.length){
+    const average = finished.reduce((sum, m) => sum + m.saved, 0) / finished.length;
+    $("trendAverage").textContent = "On average you saved " + money(average) + " a month over the last " +
+      (finished.length === 1 ? "full month" : finished.length + " full months") + ".";
+  }
 }
 
 // This month so far against the same days of last month
@@ -59,7 +83,36 @@ function renderSavingsHistory(state){
   }));
 }
 
+function selectTrendMonth(el){
+  const hadFocus = el === document.activeElement;
+  trendSelected = el.dataset.month;
+  renderCurrent();
+  // Keep keyboard focus on the same month after redrawing
+  if (hadFocus){
+    const again = $("trendChart").querySelector('[data-month="' + trendSelected + '"]');
+    if (again) again.focus();
+  }
+}
+
 export function initInsights(){
+  document.querySelectorAll("[data-trend]").forEach(btn => btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-trend]").forEach(b => b.classList.toggle("active", b === btn));
+    trendLength = Number(btn.dataset.trend);
+    renderCurrent();
+  }));
+  const chart = $("trendChart");
+  chart.addEventListener("click", e => {
+    const month = e.target.closest("[data-month]");
+    if (month) selectTrendMonth(month);
+  });
+  chart.addEventListener("keydown", e => {
+    const month = e.target.closest("[data-month]");
+    if (month && (e.key === "Enter" || e.key === " ")){
+      e.preventDefault();
+      selectTrendMonth(month);
+    }
+  });
+
   document.querySelectorAll("[data-period]").forEach(btn => btn.addEventListener("click", () => {
     document.querySelectorAll("[data-period]").forEach(b => b.classList.toggle("active", b === btn));
     period = btn.dataset.period;

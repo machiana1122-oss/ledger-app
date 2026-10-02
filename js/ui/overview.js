@@ -1,36 +1,119 @@
-// Overview tab: balance, this month in and out, the savings goal card and spending by category.
+// Overview tab: recurring items that are due, a month picker, the balance, money in / out / saved,
+// the savings goal and spending by category.
 
-import { getState, commit } from "../store.js";
-import { balance, inMonth, sumOf, categoryTotals, monthProjection } from "../calc.js";
-import { goalBudget, spentInMonth, weekAllowance, weekSpent, weeksLeftInMonth, finishedMonth } from "../goal.js";
-import { todayStr, monthKeyOf, startOfWeek, monthLabel } from "../dates.js";
+import { getState, commit, requestPersistentStorage } from "../store.js";
+import { balance, inMonth, monthTotals, categoryTotals, firstMonth, monthProjection } from "../calc.js";
+import { goalStatus, savingsHistory, finishedMonth } from "../goal.js";
+import { dueItems, dueDates, addOccurrence, skipOccurrence, ruleName } from "../recurring.js";
+import { todayStr, monthKeyOf, monthLabel, shiftMonthKey, daysInMonth, shortDate } from "../dates.js";
 import { html, setHtml } from "../html.js";
 import { plural } from "../util.js";
-import { $, money } from "./shell.js";
+import { $, money, confirmChange, switchTab, renderCurrent } from "./shell.js";
 import { colorForCategory } from "./colors.js";
 import { donutSvg } from "./donut.js";
 import { renderBackupReminder } from "./backup.js";
+import { openOccurrence } from "./sheet.js";
+
+let viewMonth = null;   // the month being looked at, or null for this month
 
 export function renderOverview(state){
   const today = todayStr();
-  renderBackupReminder(state);
+  const thisMonth = monthKeyOf(today);
+  const earliest = firstMonth(state, today);
+  if (viewMonth && (viewMonth >= thisMonth || viewMonth < earliest)) viewMonth = null;
+  const month = viewMonth || thisMonth;
+  const isThisMonth = month === thisMonth;
 
-  const total = balance(state.transactions);
+  renderBackupReminder(state);
+  renderDue(state, today, isThisMonth);
+
+  $("viewMonthLabel").textContent = monthLabel(month);
+  $("prevMonthBtn").disabled = month <= earliest;
+  $("nextMonthBtn").disabled = isThisMonth;
+  $("thisMonthBtn").hidden = isThisMonth;
+
+  const lastDay = month + "-" + String(daysInMonth(month)).padStart(2, "0");
+  const total = isThisMonth ? balance(state) : balance(state, lastDay);
+  $("balanceLabel").textContent = isThisMonth ? "Balance" : "Balance at the end of " + monthLabel(month);
   const balanceEl = $("balanceNum");
   balanceEl.textContent = money(total);
   balanceEl.classList.toggle("negative", total < 0);
   fitBalance();
+  $("openingHintBtn").hidden = state.openingBalance !== null || state.transactions.length === 0;
 
-  const thisMonth = inMonth(state.transactions, monthKeyOf(today));
-  $("monthIncome").textContent = money(sumOf(thisMonth, "income"));
-  $("monthExpense").textContent = money(sumOf(thisMonth, "expense"));
+  const totals = monthTotals(state.transactions, month);
+  $("monthIncome").textContent = money(totals.income);
+  $("monthExpense").textContent = money(totals.expense);
+  $("monthSaved").textContent = money(totals.saved);
+  $("monthSaved").classList.toggle("negative", totals.saved < 0);
 
-  const projection = monthProjection(state.transactions, today);
+  // With a goal, its card says what's safe to spend; without one, a projection of the month
+  const projection = isThisMonth && !state.goal ? monthProjection(state, today) : null;
   $("paceLine").hidden = !projection;
   if (projection) setHtml($("paceLine"), html`At this pace, you're on track for about <strong>${money(projection.projected)}</strong> in expenses this month.`);
 
-  renderGoal(state, today);
-  renderSpending(thisMonth);
+  if (isThisMonth) renderGoal(state, today);
+  else renderPastGoal(state, month);
+  renderSpending(state, month, isThisMonth);
+}
+
+// ---------- Recurring items that are due ----------
+function renderDue(state, today, show){
+  const items = show ? dueItems(state, today) : [];
+  $("dueCard").hidden = items.length === 0;
+  const waiting = items.reduce((n, item) => n + 1 + item.more, 0);
+  $("dueAddAllBtn").hidden = waiting < 2;
+  $("dueAddAllBtn").textContent = "Add all " + waiting;
+  setHtml($("dueList"), items.map(({ rule, date, more }) => html`<div class="due-item"><button type="button" class="due-info" data-rule="${rule.id}" data-date="${date}"><span class="due-name">${ruleName(rule)}</span><span class="due-meta"><span class="${rule.type}">${rule.type === "income" ? "+" : "-"}${money(rule.amount)}</span> · due ${shortDate(date)}${more ? html` · ${more} more after this` : ""}</span></button><button type="button" class="btn btn-ghost btn-small" data-action="skip" data-rule="${rule.id}" data-date="${date}">Skip</button><button type="button" class="btn btn-gold btn-small" data-action="add" data-rule="${rule.id}" data-date="${date}">Add</button></div>`));
+}
+
+function addDue(rule, date){
+  const state = getState();
+  const before = rule.doneThrough;
+  addOccurrence(state, rule, date);
+  const added = state.transactions[state.transactions.length - 1];
+  commit();
+  requestPersistentStorage();
+  confirmChange("Added " + ruleName(rule), () => {
+    getState().transactions = getState().transactions.filter(t => t !== added);
+    rule.doneThrough = before;
+    commit();
+    confirmChange("Undone");
+  });
+}
+
+function skipDue(rule, date){
+  const before = rule.doneThrough;
+  skipOccurrence(rule, date);
+  commit();
+  confirmChange("Skipped " + ruleName(rule) + " for " + shortDate(date), () => {
+    rule.doneThrough = before;
+    commit();
+    confirmChange("Undone");
+  });
+}
+
+function addAllDue(){
+  const state = getState();
+  const today = todayStr();
+  const before = new Map(state.recurring.map(rule => [rule, rule.doneThrough]));
+  const added = [];
+  for (const rule of state.recurring){
+    for (const date of dueDates(rule, today)){
+      addOccurrence(state, rule, date);
+      added.push(state.transactions[state.transactions.length - 1]);
+    }
+  }
+  if (!added.length) return;
+  commit();
+  requestPersistentStorage();
+  confirmChange("Added " + plural(added.length, "recurring transaction"), () => {
+    const s = getState();
+    s.transactions = s.transactions.filter(t => !added.includes(t));
+    before.forEach((doneThrough, rule) => { rule.doneThrough = doneThrough; });
+    commit();
+    confirmChange("Undone");
+  });
 }
 
 // ---------- Savings goal ----------
@@ -41,27 +124,38 @@ function renderGoal(state, today){
   if (!goal) return;
 
   const notices = state.goalNotices;
-  setHtml($("goalBannerWrap"), [
-    notices.month ? banner("month", monthNotice(state, notices.month)) : "",
-    notices.week ? banner("week", weekNotice(state, notices.week.weekStart, today)) : ""
-  ]);
+  setHtml($("goalBannerWrap"), notices.month ? banner("month", monthNotice(state, notices.month)) : "");
 
-  const budget = goalBudget(goal);
-  const spent = spentInMonth(state.transactions, goal.monthKey);
-  const spentPct = budget > 0 ? Math.round(spent / budget * 100) : (spent > 0 ? 999 : 0);
-  const thisWeek = startOfWeek(today);
-  const allowance = weekAllowance(state.transactions, goal, thisWeek);
-  const spentThisWeek = weekSpent(state.transactions, goal, thisWeek);
-  const weekPart = allowance >= 0
-    ? html`<div class="goal-progress-top"><span>This week: ${money(spentThisWeek)} of ${money(allowance)}</span></div>${progressBar(allowance > 0 ? spentThisWeek / allowance * 100 : (spentThisWeek > 0 ? 999 : 0))}`
-    : html`<p class="goal-warning">This month's budget is already fully spent (or your numbers don't leave room to spend). Adjust your goal in Settings if that looks off.</p>`;
+  const s = goalStatus(state, today);
+  const monthName = monthLabel(goal.monthKey);
+  let headline;
+  if (s.left > 0){
+    headline = html`<p class="safe-label">Safe to spend</p><p class="safe-amount"><strong>${money(s.perDay)}</strong> a day</p><p class="safe-sub">for the ${plural(s.daysLeft, "day")} left in ${monthName}, to save ${money(s.target)}</p>`;
+  } else if (s.left === 0){
+    headline = html`<p class="safe-label">Safe to spend</p><p class="safe-amount"><strong>Nothing more</strong> this month</p><p class="safe-sub">Your budget is used up exactly, so you're still on track to save ${money(s.target)}.</p>`;
+  } else {
+    headline = html`<p class="safe-label over">Over budget</p><p class="safe-amount over"><strong>${money(-s.left)}</strong> over</p><p class="safe-sub">${s.onTrackToSave > 0 ? "If you stop here, you'd save " + money(s.onTrackToSave) + " instead of " + money(s.target) + "." : "There's nothing left to save this month."}</p>`;
+  }
+  // The bar: spent, then the bills still to come, out of what can be spent this month
+  const pct = amount => s.budget > 0 ? Math.max(0, Math.min(100, amount / s.budget * 100)) : 100;
+  const spentPct = pct(s.spent);
+  const billsPct = Math.min(100 - spentPct, pct(s.billsToCome));
+  const details = [money(s.spent) + " spent"];
+  if (s.billsToCome > 0) details.push(money(s.billsToCome) + " in bills to come");
+  details.push(money(s.budget) + " to spend in " + monthName);
 
-  setHtml($("goalBody"), html`<div class="goal-progress-top"><span>${money(spent)} of ${money(budget)} spent this month</span><span class="muted">${Math.max(0, spentPct)}%</span></div>${progressBar(spentPct, "spaced")}${weekPart}<p class="goal-note">${plural(weeksLeftInMonth(goal, today), "week")} left in ${monthLabel(goal.monthKey)}</p>`);
+  setHtml($("goalBody"), html`${headline}<div class="bar-track split spaced" role="img" aria-label="${details.join(", ")}"><div class="bar-fill ${s.left < 0 ? "over" : "on-track"}" style="width:${spentPct.toFixed(1)}%"></div><div class="bar-fill bills" style="width:${billsPct.toFixed(1)}%"></div></div><p class="goal-note">${details.join(" · ")}</p>`);
 }
 
-function progressBar(pct, extraClass){
-  const width = Math.max(0, Math.min(100, pct));
-  return html`<div class="bar-track ${extraClass || ""}"><div class="bar-fill ${pct > 100 ? "over" : "on-track"}" style="width:${width}%"></div></div>`;
+// Past months show how the goal went, if it was set then
+function renderPastGoal(state, month){
+  const row = savingsHistory(state).find(r => r.monthKey === month);
+  $("goalSectionHead").hidden = !row;
+  $("goalCard").hidden = !row;
+  if (!row) return;
+  setHtml($("goalBannerWrap"), "");
+  const hit = row.saved >= row.target;
+  setHtml($("goalBody"), html`<div class="goal-result"><span>Saved ${money(row.saved)} of ${money(row.target)} target</span><span class="history-badge ${hit ? "hit" : "miss"}">${hit ? "Hit" : "Short"}</span></div>`);
 }
 
 function banner(kind, content){
@@ -99,24 +193,16 @@ function finishedMonthLine(state, key){
   return label + ": spent " + money(m.spent) + " of " + money(m.budget) + " (" + money(Math.abs(diff)) + (diff >= 0 ? " left over)" : " over)");
 }
 
-function weekNotice(state, weekStart, today){
-  const goal = state.goal;
-  const spent = weekSpent(state.transactions, goal, weekStart);
-  const diff = weekAllowance(state.transactions, goal, weekStart) - spent;
-  const next = money(weekAllowance(state.transactions, goal, startOfWeek(today)));
-  return diff >= 0
-    ? "You spent " + money(spent) + " last week, " + money(diff) + " under your allowance. This week's allowance: " + next + "."
-    : "You spent " + money(spent) + " last week, " + money(-diff) + " over your allowance. This week's allowance is now " + next + ".";
-}
-
 // ---------- Spending by category ----------
-function renderSpending(thisMonth){
-  const totals = categoryTotals(thisMonth, "expense");
+function renderSpending(state, month, isThisMonth){
+  const totals = categoryTotals(inMonth(state.transactions, month), "expense");
   const donut = $("donut");
   donut.hidden = totals.length === 0;
   if (totals.length === 0){
     setHtml(donut, "");
-    setHtml($("catLegend"), html`<div class="empty"><strong>Nothing logged yet</strong>Tap the + button to add your first transaction and see it broken down here.</div>`);
+    setHtml($("catLegend"), isThisMonth
+      ? html`<div class="empty"><strong>Nothing logged yet</strong>Tap the + button to add your first transaction and see it broken down here.</div>`
+      : html`<div class="empty"><strong>No spending</strong>Nothing was spent in ${monthLabel(month)}.</div>`);
     return;
   }
   const sum = totals.reduce((s, t) => s + t.total, 0);
@@ -141,6 +227,11 @@ function fitBalance(){
   if (!el.clientWidth || el.scrollWidth > el.clientWidth) el.style.whiteSpace = "";
 }
 
+function showMonth(month){
+  viewMonth = month;
+  renderCurrent();
+}
+
 export function initOverview(){
   $("goalBannerWrap").addEventListener("click", e => {
     const button = e.target.closest("[data-dismiss]");
@@ -148,6 +239,30 @@ export function initOverview(){
     getState().goalNotices[button.dataset.dismiss] = null;
     commit();
   });
+
+  $("prevMonthBtn").addEventListener("click", () => showMonth(shiftMonthKey(viewMonth || monthKeyOf(todayStr()), -1)));
+  $("nextMonthBtn").addEventListener("click", () => {
+    const next = shiftMonthKey(viewMonth || monthKeyOf(todayStr()), 1);
+    showMonth(next >= monthKeyOf(todayStr()) ? null : next);
+  });
+  $("thisMonthBtn").addEventListener("click", () => showMonth(null));
+  $("openingHintBtn").addEventListener("click", () => {
+    switchTab("settings");
+    $("openingBalanceInput").focus();
+  });
+
+  $("dueList").addEventListener("click", e => {
+    const el = e.target.closest("[data-rule]");
+    if (!el) return;
+    const rule = getState().recurring.find(r => r.id === el.dataset.rule);
+    if (!rule) return;
+    const action = el.dataset.action;
+    if (action === "add") addDue(rule, el.dataset.date);
+    else if (action === "skip") skipDue(rule, el.dataset.date);
+    else openOccurrence(rule, el.dataset.date);
+  });
+  $("dueAddAllBtn").addEventListener("click", addAllDue);
+
   window.addEventListener("resize", fitBalance);
   // The web fonts can arrive after the first draw and change the text width
   if (document.fonts){

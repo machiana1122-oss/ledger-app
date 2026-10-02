@@ -77,6 +77,7 @@ button{cursor:pointer;}
   margin-bottom:18px;
 }
 .hero .label{font-size:13px; color:var(--ink-muted);}
+.hero-hint{display:block; margin:-8px 0 14px; font-size:12px;}
 .hero .balance{
   font-family:var(--font-display);
   font-size:44px;
@@ -87,7 +88,7 @@ button{cursor:pointer;}
   word-break:break-word;
 }
 .hero .balance.negative{color:var(--rust);}
-.stat-row{display:flex; gap:10px;}
+.stat-row{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
 .stat-chip{
   flex:1;
   background:rgba(0,0,0,0.14);
@@ -98,6 +99,9 @@ button{cursor:pointer;}
 .stat-chip .v{font-size:16px; font-weight:600; font-variant-numeric:tabular-nums;}
 .stat-chip.income .v{color:var(--gold);}
 .stat-chip.expense .v{color:var(--rust);}
+.stat-chip.saved{grid-column:1 / -1; display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
+.stat-chip.saved .k{margin:0;}
+.stat-chip.saved .v.negative{color:var(--rust);}
 
 /* ---------- Section headings ---------- */
 .section-head{
@@ -107,6 +111,7 @@ button{cursor:pointer;}
   margin:22px 0 10px;
 }
 .section-head h2{font-size:16px; font-weight:600; margin:0;}
+.section-head-first{margin-top:4px;}
 
 /* ---------- Card / list rows ---------- */
 .card{
@@ -223,11 +228,12 @@ button{cursor:pointer;}
   background:var(--surface); border:1px solid var(--border); border-radius:14px;
   padding:14px 16px; margin-bottom:8px;
 }
-.set-row span{font-size:14px;}
+.set-row span, .set-row label{font-size:14px;}
 .cur-input{
   width:64px; background:var(--surface-2); border:1px solid var(--border-strong); border-radius:9px;
   color:var(--ink); font-size:14px; padding:7px 9px; text-align:center;
 }
+.cur-input.wide{width:120px; text-align:right; font-variant-numeric:tabular-nums;}
 .chip-wrap{display:flex; flex-wrap:wrap; gap:8px;}
 .chip{
   display:flex; align-items:center; gap:6px;
@@ -248,6 +254,8 @@ button{cursor:pointer;}
 .btn-ghost{background:var(--surface); color:var(--ink); border:1px solid var(--border-strong);}
 .btn-danger{background:transparent; color:var(--rust); border:1px solid rgba(203,95,53,0.4);}
 .btn-block{width:100%;}
+.btn-small{padding:7px 12px; font-size:13px; border-radius:10px;}
+.link-btn{background:none; border:none; padding:0; color:var(--gold); font-size:13px; font-weight:500; text-decoration:underline; text-underline-offset:2px;}
 .btn-row{display:flex; gap:8px;}
 .btn-row .btn{flex:1;}
 .btn-row.spaced{margin-bottom:8px;}
@@ -352,9 +360,36 @@ button{cursor:pointer;}
 .pace-line{font-size:13px; color:var(--ink-muted); margin:-8px 2px 20px; line-height:1.5;}
 .pace-line strong{color:var(--ink); font-weight:600;}
 
+/* ---------- Month picker ---------- */
+.month-picker{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 12px;}
+.month-nav{width:40px; height:40px; border-radius:12px; background:var(--surface); border:1px solid var(--border); color:var(--ink); font-size:22px; line-height:1;}
+.month-nav:disabled{opacity:0.35; cursor:default;}
+.month-picker-label{flex:1; text-align:center; font-family:var(--font-display); font-size:17px; font-weight:500;}
+.month-picker-label .link-btn{display:block; margin:2px auto 0; font-family:var(--font-ui); font-size:12px;}
+
+/* ---------- Recurring items that are due ---------- */
+.due-card{margin-bottom:16px; padding:12px 14px;}
+.due-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;}
+.due-head h2{font-size:14px; font-weight:600; margin:0;}
+.due-item{display:flex; align-items:center; gap:8px; padding:8px 0; border-top:1px solid var(--border);}
+.due-item:first-child{border-top:none;}
+.due-info{flex:1; min-width:0; text-align:left; background:none; border:none; padding:0;}
+.due-name{display:block; font-size:14px; font-weight:600;}
+.due-meta{display:block; font-size:12px; color:var(--ink-muted); margin-top:2px;}
+.due-meta .income, .rule-meta .income{color:var(--gold);}
+.due-meta .expense, .rule-meta .expense{color:var(--rust);}
+
 /* ---------- Savings goal ---------- */
-.goal-progress-top{display:flex; justify-content:space-between; align-items:baseline; font-size:13px; margin-bottom:6px;}
-.goal-progress-top .muted{color:var(--ink-muted);}
+.safe-label{font-size:13px; color:var(--ink-muted); margin:0;}
+.safe-label.over{color:var(--rust);}
+.safe-amount{font-size:15px; color:var(--ink-muted); margin:2px 0 4px;}
+.safe-amount strong{font-family:var(--font-display); font-size:30px; font-weight:500; color:var(--ink); margin-right:4px;}
+.safe-amount.over strong{color:var(--rust);}
+.safe-sub{font-size:13px; color:var(--ink-muted); line-height:1.45; margin:0 0 14px;}
+.bar-track.split{display:flex;}
+/* Bills still to come: already spoken for, shown as a lighter stripe after what's been spent */
+.bar-fill.bills{border-radius:0 5px 5px 0; background:repeating-linear-gradient(135deg, rgba(227,187,99,0.55) 0 4px, rgba(227,187,99,0.25) 4px 8px);}
+.goal-result{display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:14px;}
 .history-row{padding:12px 0; border-bottom:1px solid var(--border);}
 .history-row:last-child{border-bottom:none;}
 .history-row-top{display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;}
@@ -368,7 +403,6 @@ button{cursor:pointer;}
 .lifetime-total.positive{color:var(--gold);}
 .lifetime-total-label{font-size:12px; color:var(--ink-muted); margin-top:2px;}
 .lifetime{margin-bottom:14px;}
-.goal-warning{font-size:13px; color:var(--rust); margin:0;}
 .goal-note{font-size:12px; color:var(--ink-faint); margin:10px 0 0;}
 .goal-banner{
   background:var(--surface-2); border:1px solid var(--border-strong); border-radius:12px;
@@ -418,3 +452,36 @@ button{cursor:pointer;}
   margin:24px 20px; padding:16px; border-radius:14px; font-size:14px; line-height:1.5;
   background:rgba(203,95,53,0.14); border:1px solid rgba(203,95,53,0.55);
 }
+
+/* ---------- Month by month (Insights) ---------- */
+.seg{display:flex; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:2px;}
+.seg-btn{background:none; border:none; border-radius:8px; padding:5px 10px; font-size:12px; font-weight:500; color:var(--ink-muted);}
+.seg-btn.active{background:var(--gold); color:#16281F;}
+.trend-card{padding-bottom:12px;}
+.trend{display:block; width:100%; height:auto;}
+.trend-axis{stroke:var(--border-strong); stroke-width:1;}
+.trend-hit{fill:transparent;}
+.trend-in{fill:var(--gold);}
+.trend-out{fill:var(--rust);}
+.trend-label{fill:var(--ink-muted); font-size:10px; font-family:var(--font-ui);}
+.trend-month{cursor:pointer; outline:none;}
+.trend-month:not(.selected) .trend-in, .trend-month:not(.selected) .trend-out{opacity:0.45;}
+.trend-month.selected .trend-label{fill:var(--ink); font-weight:600;}
+.trend-month:focus-visible .trend-hit{fill:rgba(242,237,225,0.06); stroke:var(--gold); stroke-width:1;}
+.trend-detail{font-size:13px; line-height:1.5; margin:10px 0 0;}
+.trend-detail strong{display:block; font-weight:600;}
+.trend-figures > span{white-space:nowrap;} /* wrap between the figures, never inside an amount */
+.trend-figures .income{color:var(--gold);}
+.trend-figures .expense{color:var(--rust);}
+.trend-average{font-size:12px; color:var(--ink-muted); margin:6px 0 0;}
+
+/* ---------- Recurring list (Settings) and the sheet ---------- */
+.rule-row{display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 12px 12px 16px; margin-bottom:8px; cursor:pointer;}
+.rule-info{flex:1; min-width:0;}
+.rule-name{font-size:14px; font-weight:600;}
+.rule-meta{font-size:12px; color:var(--ink-muted); margin-top:2px;}
+.empty-note{font-size:13px; color:var(--ink-faint); margin:0;}
+.repeat-row{display:flex; align-items:center; gap:10px; font-size:14px; margin:-6px 0 18px; cursor:pointer;}
+.repeat-row input{width:18px; height:18px; accent-color:var(--gold);}
+select.sheet-input{appearance:none; color:var(--ink);}
+.repeat-mark{color:var(--ink-muted); font-weight:400;}

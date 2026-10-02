@@ -167,6 +167,7 @@ function eraseSummaryText(){
   const parts = [];
   if (n) parts.push(n === 1 ? "your 1 transaction" : "all " + n + " transactions");
   parts.push("your categories and currency");
+  if (state.recurring.length) parts.push(state.recurring.length === 1 ? "your recurring transaction" : "your " + state.recurring.length + " recurring transactions");
   if (state.goal) parts.push("your savings goal");
   if (state.goalHistory.length) parts.push("your savings history");
   const list = parts.length === 1 ? parts[0] : parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];

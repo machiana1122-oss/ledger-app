@@ -1,32 +1,72 @@
-// The add/edit transaction sheet, and deleting a transaction (with Undo).
+// The transaction sheet, used four ways:
+//   add         a new transaction (optionally "Repeat every month")
+//   edit        an existing transaction
+//   occurrence  a recurring item that's due, prefilled so it can be adjusted before adding
+//   rule        a recurring item itself (amount, category, day of the month), or stop it
+// Also deleting a transaction and stopping a recurring item (both with Undo).
 
 import { getState, commit, requestPersistentStorage } from "../store.js";
 import { parseAmount, centsToInput } from "../money.js";
 import { todayStr } from "../dates.js";
+import { addOccurrence, ruleFromTransaction, ruleName, ordinal } from "../recurring.js";
 import { html, setHtml } from "../html.js";
 import { makeId } from "../util.js";
 import { $, showToast, confirmChange } from "./shell.js";
 
-let editingId = null;          // the transaction being edited, or null when adding
+let mode = "add";
+let editingId = null;      // edit: the transaction
+let rule = null;           // occurrence / rule: the recurring item
+let occurrenceDate = null; // occurrence: the date it was due
 let currentType = "expense";
 let selectedCategory = null;
 
 const editingTxn = () => editingId ? getState().transactions.find(t => t.id === editingId) || null : null;
 
-export function openSheet(txn){
+// What's being edited, if anything (its category stays available even if removed in Settings)
+const source = () => mode === "edit" ? editingTxn() : (mode === "occurrence" || mode === "rule") ? rule : null;
+
+const TITLES = { add: "Add transaction", edit: "Edit transaction", occurrence: "Add recurring transaction", rule: "Edit recurring" };
+const BUTTONS = { add: "Save transaction", edit: "Save changes", occurrence: "Add", rule: "Save changes" };
+
+function open(newMode, values){
+  mode = newMode;
   const state = getState();
-  editingId = txn ? txn.id : null;
-  $("sheetTitle").textContent = txn ? "Edit transaction" : "Add transaction";
-  $("saveTxnBtn").textContent = txn ? "Save changes" : "Save transaction";
-  $("deleteTxnBtn").hidden = !txn;
-  $("dateInput").value = txn ? txn.date : todayStr();
+  $("sheetTitle").textContent = mode === "occurrence" ? "Add " + ruleName(rule) : TITLES[mode];
+  $("saveTxnBtn").textContent = BUTTONS[mode];
+  $("deleteTxnBtn").hidden = mode !== "edit" && mode !== "rule";
+  $("deleteTxnBtn").textContent = mode === "rule" ? "Stop repeating" : "Delete transaction";
+  $("repeatRow").hidden = mode !== "add";
+  $("repeatInput").checked = false;
+  $("dateRow").hidden = mode === "rule";
+  $("ruleDayRow").hidden = mode !== "rule";
+  $("dateInput").value = values.date || todayStr();
+  if (mode === "rule") $("ruleDayInput").value = String(rule.day);
   $("sheetCurrencySign").textContent = state.currency;
-  $("amountInput").value = txn ? centsToInput(txn.amount) : "";
-  $("noteInput").value = txn ? txn.note : "";
-  setType(txn ? txn.type : "expense", txn ? txn.category : null);
+  $("amountInput").value = values.amount ? centsToInput(values.amount) : "";
+  $("noteInput").value = values.note || "";
+  setType(values.type || "expense", values.category || null);
   $("sheetBackdrop").classList.add("show");
   $("addSheet").classList.add("show");
   document.body.style.overflow = "hidden";
+}
+
+export function openSheet(txn){
+  editingId = txn ? txn.id : null;
+  rule = null;
+  open(txn ? "edit" : "add", txn || {});
+}
+
+export function openOccurrence(dueRule, date){
+  editingId = null;
+  rule = dueRule;
+  occurrenceDate = date;
+  open("occurrence", { type: rule.type, amount: rule.amount, category: rule.category, note: rule.note, date });
+}
+
+export function openRuleEditor(editRule){
+  editingId = null;
+  rule = editRule;
+  open("rule", { type: rule.type, amount: rule.amount, category: rule.category, note: rule.note });
 }
 
 function closeSheet(){
@@ -36,6 +76,7 @@ function closeSheet(){
   $("amountInput").value = "";
   $("noteInput").value = "";
   editingId = null;
+  rule = null;
 }
 
 function setType(type, preselectCategory){
@@ -46,9 +87,9 @@ function setType(type, preselectCategory){
 
 function renderCategoryPicker(preselectCategory){
   const list = getState().categories[currentType].slice();
-  // A transaction keeps its category even after that category is removed in Settings,
+  // An item keeps its category even after that category is removed in Settings,
   // so editing something else (like the note) never changes it behind the user's back
-  const original = editingTxn();
+  const original = source();
   const removedCategory = original && original.type === currentType && !list.includes(original.category) ? original.category : null;
   if (removedCategory) list.push(removedCategory);
   selectedCategory = preselectCategory && list.includes(preselectCategory) ? preselectCategory : (list[0] || null);
@@ -58,26 +99,47 @@ function renderCategoryPicker(preselectCategory){
   }));
 }
 
-function saveTransaction(){
+function save(){
   const amountField = $("amountInput");
   const amount = parseAmount(amountField.value);
   if (!(amount > 0)){ amountField.focus(); showToast("Enter an amount"); return; }
   if (!selectedCategory){ showToast("Pick a category"); return; }
   const date = $("dateInput").value || todayStr();
   const note = $("noteInput").value.trim();
+  const values = { type: currentType, amount, category: selectedCategory, note };
   const state = getState();
 
-  if (editingId){
+  if (mode === "edit"){
     const existing = editingTxn();
-    if (existing) Object.assign(existing, { type: currentType, amount, category: selectedCategory, note, date });
+    if (existing) Object.assign(existing, values, { date });
     closeSheet();
     commit();
     confirmChange("Transaction updated");
-  } else {
-    state.transactions.push({ id: makeId(), type: currentType, amount, category: selectedCategory, note, date, createdAt: Date.now() });
+  } else if (mode === "occurrence"){
+    const dueRule = rule;
+    addOccurrence(state, dueRule, occurrenceDate, { ...values, date });
     closeSheet();
     commit();
-    confirmChange("Transaction added");
+    confirmChange("Added " + ruleName(dueRule));
+    requestPersistentStorage();
+  } else if (mode === "rule"){
+    Object.assign(rule, values, { day: parseInt($("ruleDayInput").value, 10) });
+    closeSheet();
+    commit();
+    confirmChange("Recurring item updated");
+  } else {
+    const txn = { id: makeId(), ...values, date, createdAt: Date.now() };
+    let message = "Transaction added";
+    if ($("repeatInput").checked){
+      const newRule = ruleFromTransaction(txn);
+      txn.recurringId = newRule.id;
+      state.recurring.push(newRule);
+      message = "Transaction added. It repeats every month on the " + ordinal(newRule.day);
+    }
+    state.transactions.push(txn);
+    closeSheet();
+    commit();
+    confirmChange(message);
     requestPersistentStorage();
   }
 }
@@ -95,12 +157,28 @@ export function deleteTransaction(id){
   });
 }
 
+// Stops a recurring item. Transactions already logged from it stay.
+export function stopRecurring(id){
+  const state = getState();
+  const index = state.recurring.findIndex(r => r.id === id);
+  if (index === -1) return;
+  const [stopped] = state.recurring.splice(index, 1);
+  commit();
+  confirmChange("Stopped repeating " + ruleName(stopped), () => {
+    getState().recurring.splice(Math.min(index, getState().recurring.length), 0, stopped);
+    commit();
+    confirmChange("Restored");
+  });
+}
+
 export function initSheet(){
+  setHtml($("ruleDayInput"), Array.from({ length: 31 }, (_, i) =>
+    html`<option value="${i + 1}">${ordinal(i + 1)}${i + 1 > 28 ? " (or the last day of shorter months)" : ""}</option>`));
   $("fabAdd").addEventListener("click", () => openSheet());
   $("sheetBackdrop").addEventListener("click", closeSheet);
   document.querySelectorAll(".type-toggle button").forEach(b => b.addEventListener("click", () => {
-    // Switching back to the edited transaction's own type brings its category back too
-    const original = editingTxn();
+    // Switching back to the item's own type brings its category back too
+    const original = source();
     setType(b.dataset.type, original && original.type === b.dataset.type ? original.category : null);
   }));
   $("catPicker").addEventListener("click", e => {
@@ -109,11 +187,16 @@ export function initSheet(){
     $("catPicker").querySelectorAll(".cat-pill").forEach(p => p.classList.toggle("active", p === pill));
     selectedCategory = pill.dataset.cat;
   });
-  $("saveTxnBtn").addEventListener("click", saveTransaction);
+  $("saveTxnBtn").addEventListener("click", save);
   $("deleteTxnBtn").addEventListener("click", () => {
-    const id = editingId;
-    if (!id) return;
-    closeSheet();
-    deleteTransaction(id);
+    if (mode === "rule" && rule){
+      const id = rule.id;
+      closeSheet();
+      stopRecurring(id);
+    } else if (mode === "edit" && editingId){
+      const id = editingId;
+      closeSheet();
+      deleteTransaction(id);
+    }
   });
 }
