@@ -139,7 +139,13 @@ function renderCategoryPicker(preselectCategory){
 function save(){
   const amountField = $("amountInput");
   const amount = parseAmount(amountField.value);
-  if (!(amount > 0)){ amountField.focus(); showToast("Enter an amount"); return; }
+  if (!(amount > 0)){
+    amountField.focus();
+    showToast(amountField.value.trim() === "" ? "Enter an amount"
+      : Number.isNaN(amount) ? "That amount isn't clear. Write it like 1500 or 12.50"
+      : "Enter an amount above 0");
+    return;
+  }
   if (!selectedCategory){ showToast("Pick a category"); return; }
   const date = $("dateInput").value || todayStr();
   const note = $("noteInput").value.trim();

@@ -112,8 +112,8 @@ function saveGoal(){
   const state = getState();
   const monthlyIncome = parseAmount($("goalIncomeInput").value);
   const monthlySavings = parseAmount($("goalSavingsInput").value);
-  if (!(monthlyIncome >= 0)){ showToast("Enter your expected monthly income"); return; }
-  if (!(monthlySavings > 0)){ showToast("Enter how much you want to save"); return; }
+  if (!(monthlyIncome >= 0)){ showToast("Enter your expected monthly income, like 9000"); return; }
+  if (!(monthlySavings > 0)){ showToast("Enter how much you want to save, like 2000"); return; }
   if (monthlySavings >= monthlyIncome){ showToast("Your savings target needs to be less than your income"); return; }
   const wasEditing = !!state.goal;
   state.goal = { monthlyIncome, monthlySavings, monthKey: currentMonth(state, todayStr()) };

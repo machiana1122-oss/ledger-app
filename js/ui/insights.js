@@ -6,6 +6,7 @@ import { monthsOf } from "../months.js";
 import { savingsHistory, lifetimeSaved } from "../goal.js";
 import { todayStr, shiftMonthKey, addDays, daysBetween, monthLabel } from "../dates.js";
 import { html, setHtml } from "../html.js";
+import { plural } from "../util.js";
 import { $, money, renderCurrent } from "./shell.js";
 import { categoryColors } from "./colors.js";
 import { trendSvg } from "./trend.js";
@@ -40,20 +41,26 @@ export function renderInsights(state){
 }
 
 // Money in and out for the last few months; the average leaves out this month, which isn't over yet
+// (and what's not spent yet in it is "left", not "saved")
 function renderTrend(state, thisMonth, today){
   const months = recentMonths(state, today, trendLength).map(key => {
     const t = monthTotals(state, key);
-    return { key, ...t, title: monthLabel(key) + ": in " + money(t.income) + ", out " + money(t.expense) + ", saved " + money(t.saved) };
+    const now = key === thisMonth;
+    return { key, ...t, title: monthLabel(key) + (now ? " so far" : "") + ": in " + money(t.income) + ", out " + money(t.expense) + (now ? ", left " : ", saved ") + money(t.saved) };
   });
   const selected = months.find(m => m.key === trendSelected) || months[months.length - 1];
   setHtml($("trendChart"), trendSvg(months, selected.key, "Money in and out, month by month. Choose a month to see its numbers."));
-  setHtml($("trendDetail"), html`<strong>${monthLabel(selected.key)}${selected.key === thisMonth ? " so far" : ""}</strong><span class="trend-figures"><span class="income">In ${money(selected.income)}</span> · <span class="expense">Out ${money(selected.expense)}</span> · <span class="${selected.saved < 0 ? "expense" : ""}">Saved ${money(selected.saved)}</span></span>`);
+  setHtml($("trendDetail"), html`<strong>${monthLabel(selected.key)}${selected.key === thisMonth ? " so far" : ""}</strong><span class="trend-figures"><span class="income">In ${money(selected.income)}</span> · <span class="expense">Out ${money(selected.expense)}</span> · <span class="${selected.saved < 0 ? "expense" : ""}">${selected.key === thisMonth ? "Left" : "Saved"} ${money(selected.saved)}</span></span>`);
+  // Like the savings total, months with no income logged can't say what was saved, so they're left out
   const finished = months.filter(m => m.key !== thisMonth);
-  $("trendAverage").hidden = finished.length === 0;
-  if (finished.length){
-    const average = finished.reduce((sum, m) => sum + m.saved, 0) / finished.length;
+  const counted = finished.filter(m => m.income > 0);
+  const leftOut = finished.length - counted.length;
+  $("trendAverage").hidden = counted.length === 0;
+  if (counted.length){
+    const average = counted.reduce((sum, m) => sum + m.saved, 0) / counted.length;
     $("trendAverage").textContent = "On average you saved " + money(average) + " a month over the last " +
-      (finished.length === 1 ? "full month" : finished.length + " full months") + ".";
+      (counted.length === 1 ? "full month" : counted.length + " full months") +
+      (leftOut ? " (leaving out " + plural(leftOut, "month") + " with no income logged)" : "") + ".";
   }
 }
 
@@ -78,9 +85,16 @@ function renderSavingsHistory(state){
   $("goalHistoryBlock").hidden = rows.length === 0;
   if (rows.length === 0) return;
 
-  const total = lifetimeSaved(state);
-  setHtml($("goalLifetimeTotal"), html`<div class="lifetime-total ${total >= 0 ? "positive" : "negative"}">${money(total)}</div><div class="lifetime-total-label">total saved since you started${state.goal ? ", including this month so far" : ""}</div>`);
-  setHtml($("goalHistoryList"), rows.map(({ monthKey, saved, target }) => {
+  // Only finished months with income logged count: nothing is guessed, and this month isn't over
+  const { total, months, unknown } = lifetimeSaved(state);
+  const leftOut = unknown ? " (leaving out " + plural(unknown, "month") + " with no income logged)" : "";
+  setHtml($("goalLifetimeTotal"), months
+    ? html`<div class="lifetime-total ${total >= 0 ? "positive" : "negative"}">${money(total)}</div><div class="lifetime-total-label">saved over ${plural(months, "finished month")}${leftOut}</div>`
+    : html`<div class="lifetime-total-label">No finished month with income logged yet, so there's no total to show.</div>`);
+  setHtml($("goalHistoryList"), rows.map(({ monthKey, saved, spent, target }) => {
+    if (saved === null){
+      return html`<div class="history-row"><div class="history-row-top"><span class="month">${monthLabel(monthKey)}</span><span class="history-badge unknown">No income</span></div><div class="history-row-detail">No income was logged, so what was saved can't be worked out (${money(spent)} spent)</div></div>`;
+    }
     const diff = saved - target;
     const hit = diff >= 0;
     return html`<div class="history-row"><div class="history-row-top"><span class="month">${monthLabel(monthKey)}</span><span class="history-badge ${hit ? "hit" : "miss"}">${hit ? "Hit" : "Short"}</span></div><div class="history-row-detail">Saved ${money(saved)} of ${money(target)} target (${hit ? "+" : "-"}${money(Math.abs(diff))})</div></div>`;

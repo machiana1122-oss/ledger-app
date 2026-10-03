@@ -53,6 +53,10 @@ Live: https://machiana1122-oss.github.io/ledger-app/
   `js/months.js`, and the savings goal moves to a new month inside `commit()`, so logging a salary
   starts the month at once and removing it (or Undo) reopens the previous one.
 - **Money is stored in whole cents** (12.50 is stored as `1250`), so totals are always exact.
+  Typed amounts are read strictly (`parseAmount` in `js/money.js`): "1 500", "1,500.50" and
+  "1.500,50" are understood, and anything unclear is refused rather than guessed.
+- **Savings are never guessed.** A month with no income logged has no "saved" figure, and the
+  month in progress counts as "left", not "saved", until it's over.
 - **The saved data has a `version` number** (currently 4). If the format changes, add the upgrade
   to `js/schema.js` and raise `SCHEMA_VERSION`. Older backups keep working, and data from a newer
   version of the app is never overwritten.

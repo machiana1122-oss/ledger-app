@@ -50,6 +50,8 @@ export function renderOverview(state){
   const totals = monthTotals(state, month);
   $("monthIncome").textContent = money(totals.income);
   $("monthExpense").textContent = money(totals.expense);
+  // This month isn't over: what's not spent yet is "left", not "saved"
+  $("monthSavedLabel").textContent = isThisMonth ? "Left" : "Saved";
   $("monthSaved").textContent = money(totals.saved);
   $("monthSaved").classList.toggle("negative", totals.saved < 0);
 
@@ -163,6 +165,10 @@ function renderPastGoal(state, month){
   $("goalCard").hidden = !row;
   if (!row) return;
   setHtml($("goalBannerWrap"), "");
+  if (row.saved === null){
+    setHtml($("goalBody"), html`<p class="goal-unknown">No income was logged in ${monthLabel(month)}, so what was saved can't be worked out.</p>`);
+    return;
+  }
   const hit = row.saved >= row.target;
   setHtml($("goalBody"), html`<div class="goal-result"><span>Saved ${money(row.saved)} of ${money(row.target)} target</span><span class="history-badge ${hit ? "hit" : "miss"}">${hit ? "Hit" : "Short"}</span></div>`);
 }

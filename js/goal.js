@@ -39,6 +39,7 @@ export function goalStatus(state, today){
 
 // One row per finished month that has transactions, newest first. Worked out from the
 // transactions each time, so correcting an old transaction corrects the history too.
+// What was saved is never guessed: in a month with no income logged, `saved` is null.
 export function savingsHistory(state){
   const months = monthsOf(state);
   return state.goalHistory
@@ -46,18 +47,19 @@ export function savingsHistory(state){
     .filter(({ txns }) => txns.length > 0)
     .map(({ h, txns }) => {
       const earned = sumOf(txns, "income");
-      // No income logged that month: count the income that was expected
-      const income = earned > 0 ? earned : h.expectedIncome;
-      return { monthKey: h.monthKey, saved: income - sumOf(txns, "expense"), target: h.savingsTarget };
+      const spent = sumOf(txns, "expense");
+      return { monthKey: h.monthKey, saved: earned > 0 ? earned - spent : null, spent, target: h.savingsTarget };
     })
     .reverse();
 }
 
-// Everything saved in the history, plus this month so far
+// What was saved over the finished months that have income logged. This month isn't counted:
+// money not spent yet isn't saved yet. Returns { total, months, unknown } (unknown = months left
+// out because no income was logged in them).
 export function lifetimeSaved(state){
-  let total = savingsHistory(state).reduce((sum, row) => sum + row.saved, 0);
-  if (state.goal) total += incomeInMonth(state, state.goal.monthKey) - spentInMonth(state, state.goal.monthKey);
-  return total;
+  const rows = savingsHistory(state);
+  const known = rows.filter(row => row.saved !== null);
+  return { total: known.reduce((sum, row) => sum + row.saved, 0), months: known.length, unknown: rows.length - known.length };
 }
 
 // A finished month's numbers for the summary on Overview (budget is null if it's no longer in the history)
