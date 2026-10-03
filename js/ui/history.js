@@ -3,7 +3,7 @@
 
 import { getState } from "../store.js";
 import { monthsOf, monthStartedByIncome } from "../months.js";
-import { todayStr, monthLabel, monthName } from "../dates.js";
+import { todayStr, monthLabel, monthName, shortDate } from "../dates.js";
 import { html, setHtml } from "../html.js";
 import { $, money, renderCurrent, monthRange } from "./shell.js";
 import { categoryColors } from "./colors.js";
@@ -42,8 +42,12 @@ export function renderHistory(state){
   }));
 }
 
+// The line under the category shows the date first (so a long note is what gets cut off, never
+// the date), then the note, and whether the income starts a month
 function row(t, color){
-  return html`<div class="txn-row" data-id="${t.id}" role="button" tabindex="0"><div class="txn-dot" style="background:${color}22; color:${color}">${t.category.charAt(0).toUpperCase()}</div><div class="txn-info"><div class="cat">${t.category}${t.recurringId ? html`<span class="repeat-mark" title="Recurring" aria-label="recurring"> ↻</span>` : ""}</div><div class="note">${t.note || t.date}${monthStartedByIncome(t) ? " · starts " + monthName(monthStartedByIncome(t)) : ""}</div></div><div class="txn-amt ${t.type}">${t.type === "income" ? "+" : "-"}${money(t.amount)}</div><button class="del-btn" aria-label="Delete" data-id="${t.id}">&times;</button></div>`;
+  const started = monthStartedByIncome(t);
+  const details = [t.note, started ? "starts " + monthName(started) : ""].filter(Boolean).map(part => " · " + part).join("");
+  return html`<div class="txn-row" data-id="${t.id}" role="button" tabindex="0"><div class="txn-dot" style="background:${color}22; color:${color}">${t.category.charAt(0).toUpperCase()}</div><div class="txn-info"><div class="cat">${t.category}${t.recurringId ? html`<span class="repeat-mark" title="Recurring" aria-label="recurring"> ↻</span>` : ""}</div><div class="note"><span class="txn-date">${shortDate(t.date)}</span>${details}</div></div><div class="txn-amt ${t.type}">${t.type === "income" ? "+" : "-"}${money(t.amount)}</div><button class="del-btn" aria-label="Delete" data-id="${t.id}">&times;</button></div>`;
 }
 
 function openRow(rowEl){
