@@ -41,7 +41,7 @@ function renderGoalSettings(state){
   $("goalForm").hidden = !goalFormOpen;
   $("goalSummary").hidden = goalFormOpen;
   setHtml($("goalSummary"), state.goal
-    ? html`<div class="set-row"><span>Monthly income</span><span>${money(state.goal.monthlyIncome)}</span></div><div class="set-row"><span>Monthly savings target</span><span>${money(state.goal.monthlySavings)}</span></div><div class="btn-row top-gap"><button class="btn btn-ghost" type="button" id="goalEditBtn">Edit goal</button><button class="btn btn-danger" type="button" id="goalRemoveBtn">Remove</button></div>`
+    ? html`<div class="set-row"><span>Expected monthly income</span><span>${money(state.goal.monthlyIncome)}</span></div><div class="set-row"><span>Monthly savings target</span><span>${money(state.goal.monthlySavings)}</span></div><div class="btn-row top-gap"><button class="btn btn-ghost" type="button" id="goalEditBtn">Edit goal</button><button class="btn btn-danger" type="button" id="goalRemoveBtn">Remove</button></div>`
     : html`<p class="intro">Tell me what you earn and want to save each month, and I'll work out how much you can safely spend each day.</p><button class="btn btn-gold btn-block" type="button" id="goalSetupBtn">Set a savings goal</button>`);
 }
 

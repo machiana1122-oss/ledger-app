@@ -8,22 +8,31 @@ import { monthsOf } from "./months.js";
 import { billsStillToCome, thisMonthEnd } from "./recurring.js";
 import { MAX_GOAL_HISTORY } from "./schema.js";
 
-export const goalBudget = goal => goal.monthlyIncome - goal.monthlySavings;
-export const spentInMonth = (state, key) => sumOf(monthsOf(state).txns(key), "expense");
 export const incomeInMonth = (state, key) => sumOf(monthsOf(state).txns(key), "income");
 
-// This month's goal in numbers. What's safe to spend each day is the budget left after what's been
-// spent and the recurring bills still to come, shared over the days left (today included) until
-// the month is expected to end (`payday` is set when that's the day next month's salary is due).
+// This month's goal in numbers. The budget is this month's income minus what's to be saved; what's
+// safe to spend each day is the budget left after what's been spent and the recurring bills still to
+// come, shared over the days left (today included) until the month is expected to end (`payday` is
+// set when that's the day next month's salary is due).
+// The income is what really came in once that's known: when the month began with its salary (an
+// income marked "counts for next month"), or once more than expected has come in. Until then the
+// salary may still be on its way, so the expected income is used.
 export function goalStatus(state, today){
   const goal = state.goal;
-  const budget = goalBudget(goal);
-  const spent = spentInMonth(state, goal.monthKey);
+  const months = monthsOf(state);
+  const txns = months.txns(goal.monthKey);
+  const earned = sumOf(txns, "income");
+  const incomeIsActual = months.startsEarly(goal.monthKey) || earned >= goal.monthlyIncome;
+  const income = incomeIsActual ? earned : goal.monthlyIncome;
+  const budget = income - goal.monthlySavings;
+  const spent = sumOf(txns, "expense");
   const billsToCome = billsStillToCome(state, today);
   const { end, payday } = thisMonthEnd(state, today);
   const daysLeft = Math.max(1, daysBetween(today, end) + 1);
   const left = budget - spent - billsToCome;
   return {
+    income,
+    incomeIsActual,
     budget,
     spent,
     billsToCome,
@@ -62,14 +71,17 @@ export function lifetimeSaved(state){
   return { total: known.reduce((sum, row) => sum + row.saved, 0), months: known.length, unknown: rows.length - known.length };
 }
 
-// A finished month's numbers for the summary on Overview (budget is null if it's no longer in the history)
+// A finished month's numbers for the summary on Overview. Its budget is what really came in minus
+// the savings target it had; null when no income was logged (it isn't guessed) or the month is no
+// longer in the history.
 export function finishedMonth(state, key){
   const txns = monthsOf(state).txns(key);
   const entry = state.goalHistory.find(h => h.monthKey === key);
+  const earned = sumOf(txns, "income");
   return {
     logged: txns.length > 0,
     spent: sumOf(txns, "expense"),
-    budget: entry ? entry.expectedIncome - entry.savingsTarget : null
+    budget: entry && earned > 0 ? earned - entry.savingsTarget : null
   };
 }
 

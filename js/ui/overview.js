@@ -153,7 +153,8 @@ function renderGoal(state, today){
   const billsPct = Math.min(100 - spentPct, pct(s.billsToCome));
   const details = [money(s.spent) + " spent"];
   if (s.billsToCome > 0) details.push(money(s.billsToCome) + " in bills to come");
-  details.push(money(s.budget) + " to spend in " + thisMonthName);
+  // ...and where that comes from: the income that came in (or is expected) minus the target
+  details.push(money(s.budget) + " to spend in " + thisMonthName + " (" + money(s.income) + (s.incomeIsActual ? " came in" : " expected") + ", " + money(s.target) + " to save)");
 
   setHtml($("goalBody"), html`${headline}<div class="bar-track split spaced" role="img" aria-label="${details.join(", ")}"><div class="bar-fill ${s.left < 0 ? "over" : "on-track"}" style="width:${spentPct.toFixed(1)}%"></div><div class="bar-fill bills" style="width:${billsPct.toFixed(1)}%"></div></div><p class="goal-note">${details.join(" · ")}</p>`);
 }
