@@ -1,5 +1,6 @@
 // Offline support: registers the service worker (sw.js), which keeps a copy of the app so it opens
-// without a connection. Needs https or localhost.
+// without a connection, and makes sure each launch uses one version of the app. Needs https or
+// localhost.
 
 let status = ("serviceWorker" in navigator && window.isSecureContext) ? "pending" : "unsupported";
 
@@ -13,16 +14,9 @@ export function startOfflineSupport(onStatusChange){
       .then(() => navigator.serviceWorker.ready)
       .then(registration => {
         status = "ready";
-        keepLoadedFiles(registration);
+        // The app has started: the service worker checks that its saved copy is the latest version
+        if (registration.active) registration.active.postMessage({ type: "started" });
       }, () => { status = "failed"; })
       .then(onStatusChange);
   });
-}
-
-// Tells the service worker every app file this page loaded (styles, scripts...), so they're all
-// available offline from the very first visit - no list to keep up to date by hand.
-function keepLoadedFiles(registration){
-  if (!registration.active) return;
-  const urls = performance.getEntriesByType("resource").map(e => e.name).filter(url => url.startsWith(registration.scope));
-  registration.active.postMessage({ type: "keep-files", urls });
 }

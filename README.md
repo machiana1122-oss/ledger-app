@@ -32,7 +32,7 @@ The app uses JavaScript modules, which browsers only load from a web address, so
 `index.html` won't work. From this folder, run:
 
 ```
-python:m http.server 8000
+python -m http.server 8000
 ```
 
 then open http://localhost:8000.
