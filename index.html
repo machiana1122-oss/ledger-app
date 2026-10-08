@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ledger">
 <meta name="theme-color" content="#16281F">
+<meta name="color-scheme" content="dark">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
@@ -34,6 +35,33 @@
 </script>
 
 <div class="app">
+  <!-- The tab bar on phones; the sidebar on laptops (styles.css) -->
+  <nav class="tabbar" aria-label="Sections">
+    <div class="side-brand"><img src="icons/icon-192.png" alt="" width="30" height="30"><span>Ledger</span></div>
+    <button class="btn btn-gold side-add" type="button" id="sideAddBtn" aria-keyshortcuts="N"><span class="side-add-plus" aria-hidden="true">+</span> Add transaction</button>
+    <button class="tab-btn active" data-tab="overview" aria-current="page">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12l8-7 8 7"/><path d="M6 10.5V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8.5"/></svg>
+      Overview
+    </button>
+    <button class="tab-btn" data-tab="history">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+      History
+    </button>
+    <button class="tab-btn" data-tab="insights">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 19V9"/><path d="M12 19V5"/><path d="M19 19v-6"/></svg>
+      Insights
+    </button>
+    <button class="tab-btn" data-tab="settings">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19.5a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H4.5a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H10a1.7 1.7 0 0 0 1-1.55V4.5a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V10a1.7 1.7 0 0 0 1.55 1H19.5a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1z"/></svg>
+      Settings
+    </button>
+    <div class="side-foot">
+      <p class="side-backup" id="sideBackup"></p>
+      <button class="link-btn" type="button" id="sideExportBtn">Export backup</button>
+      <p class="side-keys">Shortcuts: <kbd>N</kbd> add · <kbd>/</kbd> search · <kbd>&larr;</kbd> <kbd>&rarr;</kbd> months</p>
+    </div>
+  </nav>
+
   <header class="topbar">
     <h1 id="topTitle">Overview</h1>
     <span class="sub" id="topSub"></span>
@@ -100,32 +128,48 @@
 
       <div class="pace-line" id="paceLine" hidden></div>
 
-      <div class="section-head" id="goalSectionHead" hidden><h2>Savings goal</h2></div>
-      <div class="card" id="goalCard" hidden>
-        <div id="goalBannerWrap"></div>
-        <div id="goalBody"></div>
+      <div class="ov-goal" id="goalSection" hidden>
+        <div class="section-head" id="goalSectionHead" hidden><h2>Savings goal</h2></div>
+        <div class="card" id="goalCard" hidden>
+          <div id="goalBannerWrap"></div>
+          <div id="goalBody"></div>
+        </div>
       </div>
 
-      <div class="section-head"><h2 id="spendingTitle">Spending by category</h2></div>
-      <div class="card">
-        <div class="donut-wrap" id="donut" hidden></div>
-        <div class="cat-legend" id="catLegend"></div>
+      <div class="ov-spending">
+        <div class="section-head"><h2 id="spendingTitle">Spending by category</h2></div>
+        <div class="card spend-card">
+          <div class="spend-body">
+            <div class="donut-wrap" id="donut" hidden></div>
+            <div class="cat-legend" id="catLegend"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Laptop only -->
+      <div class="ov-recent" id="recentSection">
+        <div class="section-head"><h2 id="recentTitle">Recent transactions</h2><button class="link-btn" type="button" id="recentAllBtn">See all in History</button></div>
+        <div class="card recent-card"><div id="recentList"></div></div>
       </div>
     </section>
 
     <!-- HISTORY -->
     <section class="tab-panel" id="tab-history">
-      <input type="text" id="historySearch" class="search-input" placeholder="Search by category or note">
-      <div class="filter-row">
-        <button class="filter-btn active" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="income">Income</button>
-        <button class="filter-btn" data-filter="expense">Expenses</button>
+      <div class="history-tools">
+        <input type="text" id="historySearch" class="search-input" placeholder="Search by category or note" aria-label="Search by category or note" aria-keyshortcuts="/">
+        <div class="filter-row">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="income">Income</button>
+          <button class="filter-btn" data-filter="expense">Expenses</button>
+        </div>
       </div>
+      <p class="history-summary" id="historySummary" aria-live="polite" hidden></p>
       <div id="historyList"></div>
     </section>
 
     <!-- INSIGHTS -->
     <section class="tab-panel" id="tab-insights">
+      <div class="ins-trend">
       <div class="section-head section-head-first">
         <h2>Month by month</h2>
         <div class="seg" role="group" aria-label="How many months">
@@ -138,7 +182,9 @@
         <p class="trend-detail" id="trendDetail" aria-live="polite"></p>
         <p class="trend-average" id="trendAverage"></p>
       </div>
+      </div>
 
+      <div class="ins-where">
       <div class="section-head"><h2>Where it goes</h2></div>
       <div class="period-row">
         <button class="filter-btn active" data-period="month">This month</button>
@@ -149,16 +195,20 @@
       <div class="card">
         <div class="bar-list" id="insightsList"></div>
       </div>
+      </div>
 
+      <div class="ins-history">
       <div class="section-head" id="goalSectionHead2" hidden><h2>Savings history</h2></div>
       <div class="card" id="goalHistoryBlock" hidden>
         <div class="lifetime" id="goalLifetimeTotal"></div>
         <div id="goalHistoryList"></div>
       </div>
+      </div>
     </section>
 
     <!-- SETTINGS -->
     <section class="tab-panel" id="tab-settings">
+      <div class="settings-col">
       <div class="set-block">
         <h3>Currency</h3>
         <div class="set-row">
@@ -178,17 +228,19 @@
 
       <div class="set-block">
         <h3>Expense categories</h3>
-        <p class="hint">Tap a category to rename it.</p>
+        <p class="hint">Select a category to rename it.</p>
         <div class="chip-wrap" id="categoryChips"></div>
         <div class="add-chip-row">
           <input type="text" id="newCategoryInput" placeholder="New category">
           <button class="btn btn-gold" id="addCategoryBtn">Add</button>
         </div>
       </div>
+      </div>
 
+      <div class="settings-col">
       <div class="set-block">
         <h3>Recurring</h3>
-        <p class="hint">Rent, salary, subscriptions... To add one, tick "Repeat every month" when you add a transaction. Tap one to change it.</p>
+        <p class="hint">Rent, salary, subscriptions... To add one, tick "Repeat every month" when you add a transaction. Select one to change it.</p>
         <div id="recurringList"></div>
       </div>
 
@@ -220,34 +272,17 @@
         <input type="file" id="importFile" accept="application/json,.json" hidden>
         <button class="btn btn-danger btn-block" id="resetBtn">Erase all data</button>
       </div>
+      </div>
     </section>
 
   </main>
 
   <button class="fab" id="fabAdd" aria-label="Add transaction">+</button>
 
-  <nav class="tabbar">
-    <button class="tab-btn active" data-tab="overview">
-      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12l8-7 8 7"/><path d="M6 10.5V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8.5"/></svg>
-      Overview
-    </button>
-    <button class="tab-btn" data-tab="history">
-      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
-      History
-    </button>
-    <button class="tab-btn" data-tab="insights">
-      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 19V9"/><path d="M12 19V5"/><path d="M19 19v-6"/></svg>
-      Insights
-    </button>
-    <button class="tab-btn" data-tab="settings">
-      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19.5a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H4.5a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H10a1.7 1.7 0 0 0 1-1.55V4.5a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V10a1.7 1.7 0 0 0 1.55 1H19.5a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1z"/></svg>
-      Settings
-    </button>
-  </nav>
 </div>
 
 <div class="sheet-backdrop" id="sheetBackdrop"></div>
-<div class="sheet" id="addSheet">
+<div class="sheet" id="addSheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
   <div class="sheet-handle"></div>
   <h2 id="sheetTitle">Add transaction</h2>
   <div class="type-toggle">

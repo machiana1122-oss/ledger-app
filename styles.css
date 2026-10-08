@@ -13,6 +13,9 @@
   --font-ui:'Work Sans',sans-serif;
   --safe-top:env(safe-area-inset-top);
   --safe-bottom:env(safe-area-inset-bottom);
+  --sidebar-w:228px;
+  /* The browser's own controls (date picker, dropdowns, scrollbars) in their dark style */
+  color-scheme:dark;
 }
 
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
@@ -102,6 +105,12 @@ button{cursor:pointer;}
 .stat-chip.saved{grid-column:1 / -1; display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
 .stat-chip.saved .k{margin:0;}
 .stat-chip.saved .v.negative{color:var(--rust);}
+.hero{container-type:inline-size;}
+@container (min-width:460px){
+  .stat-row{grid-template-columns:repeat(3, minmax(0,1fr));}
+  .stat-chip.saved{grid-column:auto; display:block;}
+  .stat-chip.saved .k{margin-bottom:2px;}
+}
 
 /* ---------- Section headings ---------- */
 .section-head{
@@ -135,6 +144,15 @@ button{cursor:pointer;}
 .donut-center-label{display:block; font-size:12px; color:var(--ink-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .donut-center-amount{display:block; font-family:var(--font-display); font-size:17px; font-weight:500; white-space:nowrap; margin:2px 0 1px;}
 .donut-center-sub{display:block; font-size:11px; color:var(--ink-faint);}
+.spend-card{container-type:inline-size;}
+@container (min-width:480px){
+  .spend-body{display:flex; align-items:center; gap:28px;}
+  .spend-body .donut-wrap{margin:0; flex-shrink:0;}
+  .spend-body .donut{width:216px; height:216px;}
+  .spend-body .donut-center{width:128px;}
+  .spend-body .donut-center-amount{font-size:19px;}
+  .spend-body .cat-legend{flex:1; min-width:0; margin:0;}
+}
 .empty{
   text-align:center;
   padding:30px 16px;
@@ -177,12 +195,19 @@ button{cursor:pointer;}
 .filter-btn.active{background:var(--gold); border-color:var(--gold); color:#16281F;}
 
 .month-group{margin-bottom:6px;}
+.month-head{display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:2px 12px; margin:18px 2px 8px;}
 .month-title{
   font-size:12px;
   color:var(--ink-faint);
-  margin:18px 2px 8px;
+  margin:0;
   font-weight:600;
 }
+.month-totals{font-size:12px; color:var(--ink-faint); white-space:nowrap; font-variant-numeric:tabular-nums;}
+.history-summary{font-size:13px; color:var(--ink-muted); margin:-4px 2px 4px;}
+.month-totals .income, .history-summary .income{color:var(--gold);}
+.month-totals .expense, .history-summary .expense{color:var(--rust);}
+/* Column titles for History's table (laptop only) */
+.txn-head{display:none;}
 .txn-row{
   display:flex;
   align-items:center;
@@ -309,6 +334,8 @@ button{cursor:pointer;}
 .tab-btn .ic{width:19px; height:19px;}
 .tab-btn.active{color:var(--gold);}
 .tab-btn.active .ic{color:var(--gold);}
+.side-brand, .side-add, .side-foot{display:none;}
+.ov-recent{display:none;}
 
 /* ---------- Add sheet ---------- */
 .sheet-backdrop{
@@ -323,12 +350,14 @@ button{cursor:pointer;}
   border-radius:22px 22px 0 0;
   padding:14px 22px calc(26px + var(--safe-bottom));
   transform:translateY(105%);
-  transition:transform .32s cubic-bezier(.25,.9,.4,1);
+  /* Hidden once it has slid away (not before), so its fields can't be reached with Tab */
+  transition:transform .32s cubic-bezier(.25,.9,.4,1), visibility 0s linear .32s;
   z-index:51;
   max-height:88vh;
   overflow-y:auto;
+  visibility:hidden;
 }
-.sheet.show{transform:translateY(0);}
+.sheet.show{transform:translateY(0); visibility:visible; transition:transform .32s cubic-bezier(.25,.9,.4,1), visibility 0s;}
 .sheet-handle{width:36px; height:4px; background:var(--border-strong); border-radius:3px; margin:0 auto 16px;}
 .sheet h2{font-family:var(--font-display); font-weight:500; font-size:20px; margin:0 0 18px;}
 .type-toggle{display:flex; background:var(--surface); border-radius:13px; padding:4px; margin-bottom:18px;}
@@ -507,3 +536,124 @@ button{cursor:pointer;}
 .next-month-row .field-hint{margin:0 0 16px 28px;}
 select.sheet-input{appearance:none; color:var(--ink);}
 .repeat-mark{color:var(--ink-muted); font-weight:400;}
+
+/* ---------- Mouse hover (only with a real mouse: phones keep :hover after a tap) ---------- */
+@media (hover:hover){
+  .txn-row:hover, .cat-row:hover{background:rgba(242,237,225,0.05);}
+  .cat-row.picked:hover{background:rgba(242,237,225,0.09);}
+  .rule-row:hover{border-color:var(--border-strong);}
+  .btn-gold:hover{filter:brightness(1.07);}
+  .btn-ghost:hover, .btn-danger:hover{border-color:var(--ink-faint);}
+  .filter-btn:not(.active):hover, .cat-pill:not(.active):hover, .chip:hover, .month-nav:not(:disabled):hover{border-color:var(--border-strong); color:var(--ink);}
+  .seg-btn:not(.active):hover, .tab-btn:not(.active):hover, .type-toggle button:not(.active):hover{color:var(--ink);}
+  .link-btn:hover{text-decoration-thickness:2px;}
+}
+
+/* ---------- Laptop layout: a sidebar, and pages in columns ---------- */
+/* 900px is LAPTOP_QUERY in js/ui/shell.js; below it the phone layout above is unchanged */
+/* (Pages go into columns from 1100px; between the two, each page is one wide column) */
+@media (min-width:900px){
+  .app{max-width:none; margin:0; padding-left:var(--sidebar-w); display:block;}
+  .topbar{max-width:1200px; margin:0 auto; padding:30px 40px 18px;}
+  .topbar h1{font-size:28px;}
+  .content{max-width:1200px; margin:0 auto; padding:0 40px 56px; overflow:visible;}
+  .fab{display:none;}
+
+  /* The phone's tab bar becomes the sidebar */
+  .tabbar{
+    top:0; bottom:0; left:0; right:auto; width:var(--sidebar-w); max-width:none; margin:0;
+    flex-direction:column; align-items:stretch; gap:2px; padding:24px 14px 18px;
+    background:#122019; backdrop-filter:none; border-top:none; border-right:1px solid var(--border);
+    overflow-y:auto;
+  }
+  .side-brand{display:flex; align-items:center; gap:10px; padding:0 8px; margin-bottom:20px; font-family:var(--font-display); font-size:21px; font-weight:500;}
+  .side-brand img{border-radius:8px;}
+  .side-add{display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:16px;}
+  .side-add-plus{font-size:18px; line-height:1;}
+  .tab-btn{flex:0 0 auto; flex-direction:row; justify-content:flex-start; gap:12px; padding:10px 12px; border-radius:10px; font-size:14px; color:var(--ink-muted);}
+  .tab-btn .ic{width:20px; height:20px;}
+  .tab-btn.active{background:rgba(227,187,99,0.12);}
+  .side-foot{display:block; margin-top:auto; padding:16px 8px 0; border-top:1px solid var(--border);}
+  .side-backup{font-size:12px; color:var(--ink-muted); margin:0 0 4px;}
+  .side-foot .link-btn{font-size:12px;}
+  .side-keys{font-size:11px; color:var(--ink-faint); line-height:1.7; margin:14px 0 0;}
+  kbd{font-family:var(--font-ui); font-size:11px; color:var(--ink-muted); border:1px solid var(--border-strong); border-radius:4px; padding:0 4px;}
+
+  /* Overview (in two columns from 1100px, below) */
+  .ov-recent{display:block;}
+  .month-picker{justify-content:flex-start; gap:14px;}
+  .month-picker-label{flex:0 1 auto; min-width:150px; text-align:left;}
+  .month-picker-label .link-btn{margin:2px 0 0;}
+
+  /* History: a table */
+  .history-tools{display:flex; align-items:center; gap:12px; margin-bottom:14px;}
+  .history-tools .search-input{flex:1; margin:0;}
+  .history-tools .filter-row{flex:0 0 330px; margin:0;}
+  .history-summary{margin:0 2px 8px;}
+  #historyList{--txn-cols:88px 28px minmax(120px, 210px) minmax(0, 1fr) 130px 28px;}
+  .txn-head{
+    display:grid; grid-template-columns:var(--txn-cols); column-gap:14px;
+    position:sticky; top:0; z-index:2; background:var(--bg);
+    padding:10px 8px 8px; border-bottom:1px solid var(--border);
+    font-size:12px; font-weight:500; color:var(--ink-faint);
+  }
+  .txn-head .num{text-align:right;}
+  #historyList .txn-row{display:grid; grid-template-columns:var(--txn-cols); grid-template-areas:"date dot cat note amt del"; align-items:center; column-gap:14px; padding:8px; border-radius:8px;}
+  #historyList .txn-info, #historyList .txn-info .note{display:contents;}
+  #historyList .txn-date{grid-area:date; font-size:13px; color:var(--ink-muted);}
+  #historyList .txn-dot{grid-area:dot; width:28px; height:28px; border-radius:9px; font-size:12px;}
+  #historyList .txn-info .cat{grid-area:cat; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #historyList .txn-sep{display:none;}
+  #historyList .txn-note{grid-area:note; min-width:0; font-size:13px; color:var(--ink-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #historyList .txn-amt{grid-area:amt; text-align:right;}
+  #historyList .del-btn{grid-area:del;}
+
+  .trend-label{font-size:11px;}
+
+  /* The add / edit sheet becomes a dialog in the middle of the screen */
+  .sheet{
+    left:50%; right:auto; top:50%; bottom:auto; width:min(460px, calc(100vw - 48px)); max-width:none; margin:0;
+    max-height:calc(100vh - 64px); border-radius:20px; padding:24px 26px 22px;
+    opacity:0; transform:translate(-50%, -47%) scale(0.98);
+    transition:opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+  }
+  .sheet.show{opacity:1; transform:translate(-50%, -50%); transition:opacity .18s ease, transform .18s ease, visibility 0s;}
+  .sheet-handle{display:none;}
+
+  /* Messages sit in the middle of the page, not under the sidebar */
+  .toast{bottom:28px; left:calc(50% + var(--sidebar-w) / 2);}
+}
+
+/* Wider laptop screens: pages in columns (narrower than this, two columns would be thinner than a phone) */
+@media (min-width:1100px){
+  /* Overview: a dashboard in two columns */
+  #tab-overview.active{display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:22px 24px; align-items:start;}
+  #tab-overview > *{margin:0;}
+  #tab-overview > .backup-reminder, #tab-overview > .due-card, #tab-overview > .month-picker, #tab-overview > .pace-line{grid-column:1 / -1;}
+  /* With no goal card beside it, the balance takes the whole row; with one, its top lines up with
+     the goal card's (below the goal's heading, which has a set height for this) */
+  #tab-overview:has(> .ov-goal[hidden]) > .hero{grid-column:1 / -1;}
+  #tab-overview:has(> .ov-goal:not([hidden])) > .hero{margin-top:38px;}
+  #tab-overview .section-head{height:28px; margin:0 0 10px;}
+
+  /* Insights: the chart and where it goes side by side, the savings history under the chart */
+  #tab-insights.active{
+    display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); grid-template-rows:auto 1fr;
+    grid-template-areas:"trend where" "history where"; gap:0 28px; align-items:start;
+  }
+  .ins-trend{grid-area:trend;}
+  .ins-where{grid-area:where;}
+  .ins-history{grid-area:history;}
+  /* Headings of a set height, so the two columns line up */
+  #tab-insights .section-head{height:30px; margin:4px 0 10px;}
+  #tab-insights .ins-history > .section-head{margin-top:22px;}
+
+  /* Settings: two columns */
+  #tab-settings.active{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:0 32px; align-items:start;}
+}
+
+/* History's delete buttons show on the row under the mouse (or with keyboard focus) */
+@media (min-width:900px) and (hover:hover){
+  #historyList .del-btn{opacity:0;}
+  #historyList .txn-row:hover .del-btn, #historyList .txn-row:focus-within .del-btn{opacity:1;}
+}

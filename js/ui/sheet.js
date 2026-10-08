@@ -6,6 +6,9 @@
 // Incomes can be marked "Counts for next month" (a salary paid at the end of the month starts the
 // next month that day, see months.js); a due recurring item follows its rule.
 // Also deleting a transaction and stopping a recurring item (both with Undo).
+// It slides up from the bottom on a phone and is a dialog in the middle on a laptop (styles.css).
+// Either way the page behind it is out of reach while it's open, Esc closes it, Enter saves, and
+// focus goes back to where it was.
 
 import { getState, commit, requestPersistentStorage } from "../store.js";
 import { parseAmount, centsToInput } from "../money.js";
@@ -14,7 +17,7 @@ import { monthStartedByIncome } from "../months.js";
 import { addOccurrence, ruleFromTransaction, ruleName, ordinal } from "../recurring.js";
 import { html, setHtml } from "../html.js";
 import { makeId } from "../util.js";
-import { $, showToast, confirmChange, monthStartNote } from "./shell.js";
+import { $, showToast, confirmChange, monthStartNote, isLaptop } from "./shell.js";
 
 let mode = "add";
 let editingId = null;      // edit: the transaction
@@ -22,6 +25,10 @@ let rule = null;           // occurrence / rule: the recurring item
 let occurrenceDate = null; // occurrence: the date it was due
 let currentType = "expense";
 let selectedCategory = null;
+let returnFocus = null;    // what had focus before the sheet opened
+
+export const isSheetOpen = () => $("addSheet").classList.contains("show");
+const page = () => document.querySelector(".app");
 
 const editingTxn = () => editingId ? getState().transactions.find(t => t.id === editingId) || null : null;
 
@@ -49,9 +56,13 @@ function open(newMode, values){
   $("amountInput").value = values.amount ? centsToInput(values.amount) : "";
   $("noteInput").value = values.note || "";
   setType(values.type || "expense", values.category || null);
+  if (!isSheetOpen()) returnFocus = document.activeElement;
   $("sheetBackdrop").classList.add("show");
   $("addSheet").classList.add("show");
   document.body.style.overflow = "hidden";
+  page().inert = true;
+  // With a keyboard, typing the amount comes first (on a phone this would pop the keyboard up)
+  if (isLaptop()) $("amountInput").focus();
 }
 
 export function openSheet(txn){
@@ -77,6 +88,11 @@ function closeSheet(){
   $("sheetBackdrop").classList.remove("show");
   $("addSheet").classList.remove("show");
   document.body.style.overflow = "";
+  page().inert = false;
+  // Nothing in the closed sheet keeps focus (keys would still go to its fields); it goes back to where it was
+  if ($("addSheet").contains(document.activeElement)) document.activeElement.blur();
+  if (returnFocus && returnFocus.isConnected && returnFocus !== document.body) returnFocus.focus({ preventScroll: true });
+  returnFocus = null;
   $("amountInput").value = "";
   $("noteInput").value = "";
   editingId = null;
@@ -234,7 +250,22 @@ export function initSheet(){
   setHtml($("ruleDayInput"), Array.from({ length: 31 }, (_, i) =>
     html`<option value="${i + 1}">${ordinal(i + 1)}${i + 1 > 28 ? " (or the last day of shorter months)" : ""}</option>`));
   $("fabAdd").addEventListener("click", () => openSheet());
+  $("sideAddBtn").addEventListener("click", () => openSheet());
   $("sheetBackdrop").addEventListener("click", closeSheet);
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && isSheetOpen()){
+      e.preventDefault();
+      closeSheet();
+    }
+  });
+  // Enter in a text field saves (buttons, tick boxes and the day list keep their own Enter)
+  $("addSheet").addEventListener("keydown", e => {
+    if (e.key !== "Enter" || e.isComposing || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.tagName === "INPUT" && e.target.type !== "checkbox"){
+      e.preventDefault();
+      save();
+    }
+  });
   document.querySelectorAll(".type-toggle button").forEach(b => b.addEventListener("click", () => {
     // Switching back to the item's own type brings its category back too
     const original = source();

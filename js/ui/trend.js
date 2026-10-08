@@ -1,17 +1,19 @@
 // The month-by-month chart on Insights: money in (gold) and out (rust) for each month, as SVG.
 // Each month can be tapped (or chosen with the keyboard) to show its numbers under the chart.
+// It's drawn at the width it's shown at, so on a wide screen the bars spread out while the text
+// keeps its size (stretching a small drawing would blow the labels up).
 
 import { html } from "../html.js";
 import { shortMonthLabel } from "../dates.js";
 
-const WIDTH = 320;
-const HEIGHT = 150;
 const TOP = 8;       // space above the tallest bar
-const BASE = 124;    // the line the bars stand on
-const LABEL_Y = 142;
 
-// months: [{ key, income, expense, title }]
-export function trendSvg(months, selectedKey, label){
+// months: [{ key, income, expense, title }]; width: the space it's shown in (CSS pixels)
+export function trendSvg(months, selectedKey, label, width = 320){
+  const WIDTH = Math.max(240, Math.round(width));
+  const HEIGHT = Math.round(Math.min(220, Math.max(150, WIDTH * 0.32)));
+  const BASE = HEIGHT - 26;     // the line the bars stand on
+  const LABEL_Y = HEIGHT - 8;
   const max = Math.max(1, ...months.map(m => Math.max(m.income, m.expense)));
   const slot = WIDTH / months.length;
   const barWidth = Math.min(16, slot * 0.32);

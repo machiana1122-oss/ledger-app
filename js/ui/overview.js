@@ -1,6 +1,6 @@
 // Overview tab: recurring items that are due, a month picker, the balance, money in / out / saved,
-// the savings goal and spending by category. Months are Ledger's months, which can start early
-// on payday (see months.js).
+// the savings goal, spending by category and (on a laptop) the most recent transactions. Months
+// are Ledger's months, which can start early on payday (see months.js).
 
 import { getState, commit, requestPersistentStorage } from "../store.js";
 import { balance, monthTotals, categoryTotals, firstMonth, currentMonth, monthProjection } from "../calc.js";
@@ -13,8 +13,11 @@ import { plural } from "../util.js";
 import { $, money, confirmChange, switchTab, renderCurrent, monthRange, monthStartNote } from "./shell.js";
 import { categoryColors } from "./colors.js";
 import { donutSvg } from "./donut.js";
+import { txnRow, newestFirst } from "./txnrow.js";
 import { renderBackupReminder } from "./backup.js";
-import { openOccurrence } from "./sheet.js";
+import { openSheet, openOccurrence } from "./sheet.js";
+
+const RECENT_COUNT = 8;
 
 let viewMonth = null;   // the month being looked at, or null for this month
 let pickedCategory = null; // the category picked in the spending chart, or null for the total
@@ -63,6 +66,7 @@ export function renderOverview(state){
   if (isThisMonth) renderGoal(state, today);
   else renderPastGoal(state, month);
   renderSpending(state, months, month, isThisMonth);
+  renderRecent(state, months, month, isThisMonth);
 }
 
 // ---------- Recurring items that are due ----------
@@ -125,6 +129,7 @@ function addAllDue(){
 // ---------- Savings goal ----------
 function renderGoal(state, today){
   const goal = state.goal;
+  $("goalSection").hidden = !goal;
   $("goalSectionHead").hidden = !goal;
   $("goalCard").hidden = !goal;
   if (!goal) return;
@@ -162,6 +167,7 @@ function renderGoal(state, today){
 // Past months show how the goal went, if it was set then
 function renderPastGoal(state, month){
   const row = savingsHistory(state).find(r => r.monthKey === month);
+  $("goalSection").hidden = !row;
   $("goalSectionHead").hidden = !row;
   $("goalCard").hidden = !row;
   if (!row) return;
@@ -219,7 +225,7 @@ function renderSpending(state, months, month, isThisMonth){
   if (totals.length === 0){
     setHtml(donut, "");
     setHtml($("catLegend"), isThisMonth
-      ? html`<div class="empty"><strong>Nothing logged yet</strong>Tap the + button to add your first transaction and see it broken down here.</div>`
+      ? html`<div class="empty"><strong>Nothing logged yet</strong>Add your first transaction to see your spending broken down here.</div>`
       : html`<div class="empty"><strong>No spending</strong>Nothing was spent in ${monthLabel(month)}.</div>`);
     return;
   }
@@ -233,13 +239,24 @@ function renderSpending(state, months, month, isThisMonth){
     ? html`<span class="donut-center-label">${picked.category}</span><span class="donut-center-amount">${money(picked.total)}</span><span class="donut-center-sub">${picked.pct}% of spending</span>`
     : html`<span class="donut-center-label">${isThisMonth ? "Spent so far" : "Spent"}</span><span class="donut-center-amount">${money(sum)}</span>`;
   setHtml(donut, html`${donutSvg(items.map(i => ({ key: i.category, value: i.total, color: i.color, title: i.category + ": " + money(i.total) + " (" + i.pct + "%)" })), "Spending by category", pickedCategory)}<div class="donut-center" aria-live="polite">${middle}</div>`);
-  // Big amounts shrink to fit inside the ring
+  // Big amounts shrink to fit inside the ring (it's bigger on a laptop)
   const amount = donut.querySelector(".donut-center-amount");
-  for (let size = 17; amount.clientWidth && amount.scrollWidth > amount.clientWidth && size > 11; size--) amount.style.fontSize = (size - 1) + "px";
+  for (let size = parseFloat(getComputedStyle(amount).fontSize); amount.clientWidth && amount.scrollWidth > amount.clientWidth && size > 11; size--) amount.style.fontSize = (size - 1) + "px";
   setHtml($("catLegend"), items.map(i => {
     const on = i.category === pickedCategory;
     return html`<div class="cat-row${on ? " picked" : ""}" data-cat="${i.category}" role="button" tabindex="0" aria-pressed="${on ? "true" : "false"}"><span class="dot" style="background:${i.color}"></span><span class="name">${i.category}</span><span class="pct">${i.pct}%</span><span class="amt">${money(i.total)}</span></div>`;
   }));
+}
+
+// ---------- Recent transactions (shown on a laptop) ----------
+// The latest of the month on screen, like everything else on Overview; selecting one edits it
+function renderRecent(state, months, month, isThisMonth){
+  $("recentTitle").textContent = isThisMonth ? "Recent transactions" : "Latest in " + monthLabel(month);
+  const latest = months.txns(month).sort(newestFirst).slice(0, RECENT_COUNT);
+  const colorOf = categoryColors(state);
+  setHtml($("recentList"), latest.length
+    ? latest.map(t => txnRow(t, colorOf(t.category), { deletable: false }))
+    : html`<p class="empty-note">${isThisMonth ? "Nothing logged this month yet." : "Nothing was logged in " + monthLabel(month) + "."}</p>`);
 }
 
 function pickCategory(category){
@@ -325,6 +342,24 @@ export function initOverview(){
       toggleRow(row);
     }
   });
+
+  const recent = $("recentList");
+  const openRecent = row => {
+    const txn = getState().transactions.find(t => t.id === row.dataset.id);
+    if (txn) openSheet(txn);
+  };
+  recent.addEventListener("click", e => {
+    const row = e.target.closest(".txn-row");
+    if (row) openRecent(row);
+  });
+  recent.addEventListener("keydown", e => {
+    const row = e.target.closest(".txn-row");
+    if (row && e.target === row && (e.key === "Enter" || e.key === " ")){
+      e.preventDefault();
+      openRecent(row);
+    }
+  });
+  $("recentAllBtn").addEventListener("click", () => switchTab("history"));
 
   window.addEventListener("resize", fitBalance);
   // The web fonts can arrive after the first draw and change the text width

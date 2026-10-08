@@ -4,64 +4,27 @@ A personal finance app: track income and spending, see where the money goes, and
 monthly goal. It runs in the browser (and as an iPhone Home Screen app), keeps all data on the
 device, and works offline.
 
-- **Overview** - your balance, money in / out / saved for the month (go back to any earlier month
+- **Overview**: your balance, money in / out / saved for the month (go back to any earlier month
   with the arrows), what's safe to spend per day to reach your savings goal, and spending by category
-  (tap a category in the chart or the list to see its amount and share; each category has its own colour).
-- **Recurring** - rent, salary, subscriptions: tick "Repeat every month" when adding one. When it's
+  (tap a category in the chart or the list to see its amount and share. each category has its own colour).
+- **Recurring**: rent, salary, subscriptions: tick "Repeat every month" when adding one. When it's
   due, Overview asks you to add it (one tap, or change it first) or skip it. Nothing is logged by itself.
-- **Months start on payday** - paid at the end of the month? Tick "Counts for next month" on your
+- **Months start on payday**: paid at the end of the month? Tick "Counts for next month" on your
   salary: the next month starts the day it arrives, and everything from then on counts for that
   month. Months, totals, the goal, charts and History all follow it. A salary that comes late
   (after the 1st) moves nothing.
-- **Insights** - money in and out month by month, where it goes, and how each month's goal went.
-- **Starting balance** (Settings) - what you had before you started logging, so the balance matches
+- **History**: every transaction by month, with each month's money in and out. Search or filter,
+  and a line shows how many were found and their total.
+- **Insights**: money in and out month by month, where it goes, and how each month's goal went.
+- **Starting balance** (Settings): what you had before you started logging, so the balance matches
   your real money.
+- **On a laptop** (a window 900px wide or more) , a sidebar instead of the tab bar, Overview as a
+  dashboard with your recent transactions, History as a table, and adding or editing in a dialog
+  (Esc closes it, Enter saves). Keyboard shortcuts: **N** adds a transaction, **/** searches
+  History, **← / →** change the month on Overview. Each device keeps its own data: entering
+  transactions on both needs syncing, which Ledger doesn't do yet.
 
 Live: https://machiana1122-oss.github.io/ledger-app/
-
-## Files
-
-| File | What it does |
-| --- | --- |
-| `index.html` | The page layout (no code or styling inside) |
-| `styles.css` | All the styling |
-| `js/main.js` | Starts the app and connects everything |
-| `js/store.js` | Holds the data, loads and saves it |
-| `js/schema.js` | The data format: checks saved data and backups, and upgrades older formats |
-| `js/months.js` | Which month a date counts for (months can start early, on payday) |
-| `js/calc.js` | Totals worked out from the transactions (balance, months, the spending projection) |
-| `js/goal.js` | Savings goal numbers (safe to spend per day) and the month rollover |
-| `js/recurring.js` | Recurring transactions: which dates are due, adding or skipping them, and when this month is expected to end |
-| `js/dates.js`, `js/money.js`, `js/html.js`, `js/util.js` | Small helpers |
-| `js/quickadd.js` | Adding a transaction from a link (iPhone Shortcuts / Back Tap) |
-| `js/offline.js`, `sw.js` | Offline support (the service worker) |
-| `js/ui/` | One file per part of the screen: `overview`, `history`, `insights`, `settings`, `sheet` (add/edit transactions and recurring items), `backup` (export, import, erase), `donut` and `trend` (charts), `colors`, and `shell` (tabs, messages) |
-| `manifest.webmanifest`, `icons/` | App name and icons for the Home Screen |
-
-## How the code is organised
-
-- **Data in one place.** `store.js` holds everything. Every change follows the same pattern:
-  change the data, then call `commit()`, which saves it and redraws the tab on screen.
-  Drawing code only reads the data; it never changes it.
-- **Only facts are stored** (transactions, recurring items, settings, what the savings goal was
-  each month). Balances, totals, what's safe to spend and the savings history are worked out from
-  them, so they can never get out of step.
-- **Recurring items remember the last date handled** (`doneThrough`), so each month is asked about
-  once, in order, even after weeks away. Transactions added from one carry its `recurringId`.
-- **Months are worked out, not stored.** A month follows the calendar, except that an income
-  marked `startsNextMonth` starts the next month on its date. Everything that works per month asks
-  `js/months.js`, and the savings goal moves to a new month inside `commit()`, so logging a salary
-  starts the month at once and removing it (or Undo) reopens the previous one.
-- **Money is stored in whole cents** (12.50 is stored as `1250`), so totals are always exact.
-  Typed amounts are read strictly (`parseAmount` in `js/money.js`): "1 500", "1,500.50" and
-  "1.500,50" are understood, and anything unclear is refused rather than guessed.
-- **Savings are never guessed.** A month with no income logged has no "saved" figure, and the
-  month in progress counts as "left", not "saved", until it's over.
-- **The saved data has a `version` number** (currently 4). If the format changes, add the upgrade
-  to `js/schema.js` and raise `SCHEMA_VERSION`. Older backups keep working, and data from a newer
-  version of the app is never overwritten.
-- **Safe HTML.** Page content is built with the `html` template from `js/html.js`, which escapes
-  every value, so nothing typed by the user (or inside a backup file) can turn into code.
 
 ## Running it on your computer
 
@@ -69,7 +32,7 @@ The app uses JavaScript modules, which browsers only load from a web address, so
 `index.html` won't work. From this folder, run:
 
 ```
-python -m http.server 8000
+python:m http.server 8000
 ```
 
 then open http://localhost:8000.

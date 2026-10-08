@@ -1,5 +1,7 @@
 // The app's frame: tabs (only the visible one is drawn), the message bar ("toast"), the
 // "not saved" warning shown on every tab, and small helpers shared by the tabs.
+// Wide screens get the laptop layout (a sidebar, pages in columns); it's mostly styles.css, and
+// LAPTOP_QUERY is the same rule for the few things the code does differently there.
 
 import { getState, lastSaveWorked, saveProblem } from "../store.js";
 import { formatMoney } from "../money.js";
@@ -9,7 +11,12 @@ import { html, setHtml } from "../html.js";
 
 const TAB_TITLES = { overview: "Overview", history: "History", insights: "Insights", settings: "Settings" };
 const views = {};
+const renderHooks = [];
 let currentTab = "overview";
+
+// Keep in step with the laptop layout's @media rule in styles.css
+export const LAPTOP_QUERY = "(min-width: 900px)";
+export const isLaptop = () => window.matchMedia(LAPTOP_QUERY).matches;
 
 // Money in the user's currency
 export const money = cents => formatMoney(cents, getState().currency);
@@ -35,17 +42,31 @@ export function monthStartNote(key){
 }
 
 export function registerView(name, render){ views[name] = render; }
+// For what's on screen whatever the tab (like the sidebar): drawn along with the tab
+export const onRender = fn => renderHooks.push(fn);
 
 // Draws the tab on screen. The other tabs are drawn when they're opened.
-export function renderCurrent(){ views[currentTab](getState()); }
+export function renderCurrent(){
+  const state = getState();
+  views[currentTab](state);
+  renderHooks.forEach(fn => fn(state));
+}
 
 // Draws every tab once (used to check that imported data can be shown before keeping it)
-export function renderAllViews(){ Object.values(views).forEach(render => render(getState())); }
+export function renderAllViews(){
+  const state = getState();
+  Object.values(views).forEach(render => render(state));
+  renderHooks.forEach(fn => fn(state));
+}
 
 export function switchTab(name){
   currentTab = name;
   document.querySelectorAll(".tab-panel").forEach(panel => panel.classList.toggle("active", panel.id === "tab-" + name));
-  document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === name));
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === name);
+    if (btn.dataset.tab === name) btn.setAttribute("aria-current", "page");
+    else btn.removeAttribute("aria-current");
+  });
   $("topTitle").textContent = TAB_TITLES[name];
   renderCurrent();
 }
@@ -89,6 +110,11 @@ export function updateSaveWarning(){
 
 export function initShell(){
   document.querySelectorAll(".tab-btn").forEach(btn => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
+  // Switching between the phone and laptop layouts (a window resized, a tablet turned) redraws
+  // what depends on the space, like the chart sizes
+  const laptop = window.matchMedia(LAPTOP_QUERY);
+  if (laptop.addEventListener) laptop.addEventListener("change", () => renderCurrent());
+  else if (laptop.addListener) laptop.addListener(() => renderCurrent());
   $("toast").addEventListener("click", e => {
     if (!e.target.closest(".toast-undo-btn") || !toastUndo) return;
     const undo = toastUndo;

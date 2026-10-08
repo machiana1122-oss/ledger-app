@@ -1,5 +1,6 @@
 // Insights tab: money in and out month by month, spending by category for a period (compared with
 // last month), and the savings history. Months are Ledger's months (see months.js).
+// On a laptop the chart shows 12 months to begin with, and is redrawn when the window is resized.
 
 import { sumOf, categoryTotals, monthTotals, recentMonths } from "../calc.js";
 import { monthsOf } from "../months.js";
@@ -7,12 +8,13 @@ import { savingsHistory, lifetimeSaved } from "../goal.js";
 import { todayStr, shiftMonthKey, addDays, daysBetween, monthLabel } from "../dates.js";
 import { html, setHtml } from "../html.js";
 import { plural } from "../util.js";
-import { $, money, renderCurrent } from "./shell.js";
+import { $, money, renderCurrent, currentView, isLaptop } from "./shell.js";
 import { categoryColors } from "./colors.js";
 import { trendSvg } from "./trend.js";
 
 let period = "month";   // "month" | "last" | "all"
-let trendLength = 6;    // months in the chart
+let trendLength = isLaptop() ? 12 : 6;    // months in the chart (a laptop has room for a year)
+let chartWidth = 0;     // the width the chart was last drawn at
 let trendSelected = null; // the month whose numbers are shown, or null for this month
 
 export function renderInsights(state){
@@ -49,7 +51,9 @@ function renderTrend(state, thisMonth, today){
     return { key, ...t, title: monthLabel(key) + (now ? " so far" : "") + ": in " + money(t.income) + ", out " + money(t.expense) + (now ? ", left " : ", saved ") + money(t.saved) };
   });
   const selected = months.find(m => m.key === trendSelected) || months[months.length - 1];
-  setHtml($("trendChart"), trendSvg(months, selected.key, "Money in and out, month by month. Choose a month to see its numbers."));
+  // Drawn at the width it's shown at (0 when the tab isn't on screen: then the usual 320)
+  chartWidth = $("trendChart").clientWidth;
+  setHtml($("trendChart"), trendSvg(months, selected.key, "Money in and out, month by month. Choose a month to see its numbers.", chartWidth || 320));
   setHtml($("trendDetail"), html`<strong>${monthLabel(selected.key)}${selected.key === thisMonth ? " so far" : ""}</strong><span class="trend-figures"><span class="income">In ${money(selected.income)}</span> · <span class="expense">Out ${money(selected.expense)}</span> · <span class="${selected.saved < 0 ? "expense" : ""}">${selected.key === thisMonth ? "Left" : "Saved"} ${money(selected.saved)}</span></span>`);
   // Like the savings total, months with no income logged can't say what was saved, so they're left out
   const finished = months.filter(m => m.key !== thisMonth);
@@ -113,6 +117,7 @@ function selectTrendMonth(el){
 }
 
 export function initInsights(){
+  document.querySelectorAll("[data-trend]").forEach(btn => btn.classList.toggle("active", Number(btn.dataset.trend) === trendLength));
   document.querySelectorAll("[data-trend]").forEach(btn => btn.addEventListener("click", () => {
     document.querySelectorAll("[data-trend]").forEach(b => b.classList.toggle("active", b === btn));
     trendLength = Number(btn.dataset.trend);
@@ -136,4 +141,13 @@ export function initInsights(){
     period = btn.dataset.period;
     renderCurrent();
   }));
+
+  // A resized window redraws the chart for its new width (once resizing pauses)
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (currentView() === "insights" && $("trendChart").clientWidth !== chartWidth) renderCurrent();
+    }, 120);
+  });
 }

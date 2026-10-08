@@ -1,5 +1,5 @@
-// Backups: export (share sheet on phones), the reminder, import, the status lines in Settings,
-// erasing everything, and the buttons in the "not saved" warning.
+// Backups: export (share sheet on phones), the reminder, import, the status lines in Settings and
+// the laptop sidebar, erasing everything, and the buttons in the "not saved" warning.
 
 import { getState, replaceState, commit, save, removeSetAsideCopies, restoreSetAsideCopies } from "../store.js";
 import { freshState, sanitizeState } from "../schema.js";
@@ -8,7 +8,7 @@ import { todayStr, toDateStr, daysBetween } from "../dates.js";
 import { html, setHtml } from "../html.js";
 import { plural } from "../util.js";
 import { offlineStatus } from "../offline.js";
-import { $, showToast, confirmChange, renderAllViews } from "./shell.js";
+import { $, showToast, confirmChange, renderAllViews, onRender } from "./shell.js";
 
 const BACKUP_REMINDER_DAYS = 14;
 const BACKUP_SNOOZE_DAYS = 3;
@@ -201,6 +201,11 @@ function eraseAllData(){
 }
 
 export function initBackup(){
+  // The laptop sidebar's backup line, kept up to date whatever the tab
+  onRender(state => {
+    $("sideBackup").textContent = "Last backup: " + (state.lastBackupAt ? daysAgoText(state.lastBackupAt) : "never");
+  });
+  $("sideExportBtn").addEventListener("click", () => exportBackup());
   $("exportBtn").addEventListener("click", () => exportBackup());
   $("backupReminderExportBtn").addEventListener("click", () => exportBackup());
   $("backupReminderLaterBtn").addEventListener("click", () => {

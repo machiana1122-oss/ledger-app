@@ -12,6 +12,7 @@ import { initInsights, renderInsights } from "./ui/insights.js";
 import { initSettings, renderSettings } from "./ui/settings.js";
 import { initSheet } from "./ui/sheet.js";
 import { initBackup } from "./ui/backup.js";
+import { initShortcuts } from "./ui/shortcuts.js";
 
 const loaded = load();
 // A change can start a new month (logging next month's salary) or undo one (removing it)
@@ -26,6 +27,7 @@ initInsights();
 initSettings();
 initSheet();
 initBackup();
+initShortcuts();
 registerView("overview", renderOverview);
 registerView("history", renderHistory);
 registerView("insights", renderInsights);
